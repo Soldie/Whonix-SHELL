@@ -15,7 +15,59 @@ cd ..
 cd help-steps
 
 source pre
-source variables
+
+parse_cmd_options() {
+   trap "error_handler_general" ERR INT TERM
+
+   while :
+   do
+       case $1 in
+           -h | --help | -\?)
+               script_help
+               exit 0
+               ;;
+           -tg | --tor-gateway | --torgateway)
+               export WHONIX_BUILD_GATEWAY="1"
+               shift
+               ;;
+           -tw | --tor-workstation | --torworkstation)
+               export WHONIX_BUILD_WORKSTATION="1"
+               shift
+               ;;
+           -bm | --baremetal | --bare-metal)
+               export BARE_METAL="1"
+               shift
+               ;;
+           --vbox | --virtualbox | --virtual-box)
+               export WHONIX_BUILD_VIRTUALBOX="true"
+               shift
+               ;;
+           --qcow2)
+               export WHONIX_BUILD_QCOW2="true"
+               shift
+               ;;
+           --)
+               shift
+               break
+               ;;
+           -*)
+               true "${cyan}INFO: Option $1 ignored in this script. This is not necessarily a problem.${reset}"
+               ;;
+           *)
+               break
+               ;;
+       esac
+   done
+
+   if [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+      true
+   else
+      true "${green}Skipping $0, because parameter --virtualbox is not in use.${reset}"
+      exit 0
+   fi
+
+   source variables
+}
 
 convert_img-to_vdi() {
    trap "error_handler_general" ERR INT TERM
@@ -39,11 +91,8 @@ convert_img-to_vdi() {
             "$HOMEVAR/VirtualBox VMs/$VMNAME/$VMNAME.vdi"
 }
 
-if [ "$BARE_METAL" = "1" ]; then
-   true "${green}INFO: Skipping $0, because BARE_METAL is set to 1.${reset}"
-else
-   true "${bold}${under}INFO: Currently running script: $0 ${1+"$@"}${reset}"
-   convert_img-to_vdi
-   benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
-   true "${bold}${under}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"
-fi
+true "${bold}${under}INFO: Currently running script: $0 ${1+"$@"}${reset}"
+parse_cmd_options ${1+"$@"}
+convert_img-to_vdi
+benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
+true "${bold}${under}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"

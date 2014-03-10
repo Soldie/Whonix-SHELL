@@ -20,11 +20,8 @@ cd ..
 
 cd help-steps
 
-## disable cmd line parser, since not needed
-export WHONIX_BUILD_PARSED="1"
-
+VMNAME="internalrun"
 export ROOT_CHECK="0"
-export VMNAME="internalrun"
 
 source pre
 source variables

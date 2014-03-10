@@ -17,7 +17,54 @@ cd ..
 cd help-steps
 
 source pre
-source variables
+
+parse_cmd_options() {
+   trap "error_handler_general" ERR INT TERM
+
+   while :
+   do
+       case $1 in
+           -h | --help | -\?)
+               script_help
+               exit 0
+               ;;
+           -tg | --tor-gateway | --torgateway)
+               export WHONIX_BUILD_GATEWAY="1"
+               shift
+               ;;
+           -tw | --tor-workstation | --torworkstation)
+               export WHONIX_BUILD_WORKSTATION="1"
+               shift
+               ;;
+           -bm | --baremetal | --bare-metal)
+               export BARE_METAL="1"
+               shift
+               ;;
+           --)
+               shift
+               break
+               ;;
+           -*)
+               true "${cyan}INFO: Option $1 ignored in this script. This is not necessarily a problem.${reset}"
+               ;;
+           *)
+               break
+               ;;
+       esac
+   done
+
+   if [ "$BARE_METAL" = "1" ]; then
+      true
+   elif [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+      true
+   elif [ "$WHONIX_BUILD_QCOW2" = "true" ]; then
+      true
+   else
+      error "${red}${bold}You must choose --bare-metal, --virtualbox or --qcow2.${reset}"
+   fi
+
+   source variables
+}
 
 verify_copied_files() {
    trap "error_handler_unmount" ERR INT TERM
@@ -61,6 +108,7 @@ verify_copied_f() {
 }
 
 true "${bold}${under}INFO: Currently running script: $0 ${1+"$@"}${reset}"
+parse_cmd_options ${1+"$@"}
 verify_copied_f
 benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
 true "${bold}${under}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"

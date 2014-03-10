@@ -9,7 +9,62 @@ set -x
 MYDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 source "$MYDIR"/pre
-source "$MYDIR"/variables
+
+parse_cmd_options() {
+   trap "error_handler_general" ERR INT TERM
+
+   while :
+   do
+       case $1 in
+           -h | --help | -\?)
+               script_help
+               exit 0
+               ;;
+           -tg | --tor-gateway | --torgateway)
+               export WHONIX_BUILD_GATEWAY="1"
+               shift
+               ;;
+           -tw | --tor-workstation | --torworkstation)
+               export WHONIX_BUILD_WORKSTATION="1"
+               shift
+               ;;
+           -bm | --baremetal | --bare-metal)
+               export BARE_METAL="1"
+               shift
+               ;;
+           --vbox | --virtualbox | --virtual-box)
+               export WHONIX_BUILD_VIRTUALBOX="true"
+               shift
+               ;;
+           --qcow2)
+               export WHONIX_BUILD_QCOW2="true"
+               shift
+               ;;
+           --)
+               shift
+               break
+               ;;
+           -*)
+               true "${cyan}INFO: Option $1 ignored in this script. This is not necessarily a problem.${reset}"
+               ;;
+           *)
+               break
+               ;;
+       esac
+   done
+
+   if [ "$BARE_METAL" = "1" ]; then
+      true
+   elif [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+      true
+   elif [ "$WHONIX_BUILD_QCOW2" = "true" ]; then
+      true
+   else
+      error "${red}${bold}You must choose --bare-metal, --virtualbox or --qcow2.${reset}"
+   fi
+
+   source "$MYDIR"/variables
+}
 
 remove_local_temp_apt_repo() {
    trap "error_handler_general" ERR INT TERM
@@ -23,6 +78,7 @@ remove_local_temp_apt_repo() {
 }
 
 true "${bold}INFO: Currently running script: $0 ${1+"$@"}${reset}"
+parse_cmd_options
 remove_local_temp_apt_repo
 benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
 true "${bold}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"

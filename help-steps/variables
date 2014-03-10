@@ -50,55 +50,46 @@ export WHONIX_SOURCE_HELP_STEPS_FOLDER="$WHONIX_SOURCE_FOLDER/help-steps"
 
 cd "$WHONIX_SOURCE_FOLDER"
 
-export DEBIAN_FRONTEND="noninteractive"
+[ -n "$DEBIAN_FRONTEND" ] || export DEBIAN_FRONTEND="noninteractive"
 
 ## Avoiding "perl: warning: Setting locale failed." as suggested on
 ## https://wiki.ubuntu.com/DebootstrapChroot and
 ## https://lists.debian.org/debian-amd64/2005/08/msg00249.html.
-export LANG="C"
+[ -n "$LANG" ] || export export LANG="C"
 
 ## Disable uwt while building Whonix,
 ## because it is not functional while building Whonix from source code.
 echo 'INFO: Setting... export UWT_DEV_PASSTHROUGH="1"'
 export UWT_DEV_PASSTHROUGH="1"
 
-export WHONIX_DEB_DEBUG="1"
-
-if [ ! "$WHONIX_BUILD_PARSED" = "1" ]; then
-   source "$WHONIX_SOURCE_FOLDER/help-steps/parse-cmd"
-   export WHONIX_BUILD_PARSED="1"
-fi
+[ -n "$WHONIX_DEB_DEBUG" ] || export WHONIX_DEB_DEBUG="1"
 
 if [ "$WHONIX_BUILD_GATEWAY" = "1" ]; then
-   export VMNAME="Whonix-Gateway"
-   export vmname_lowercase_long_option="--tor-gateway"
-   export VMRAM="768"
+   [ -n "$VMNAME" ] || export VMNAME="Whonix-Gateway"
+   [ -n "$vmname_lowercase_long_option" ] || export vmname_lowercase_long_option="--tor-gateway"
+   [ -n "$VMRAM" ] || export VMRAM="768"
    ## 8 MB is VirtualBox's default. Used up to Whonix 8.
-   export VRAM="8"
-   export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
+   [ -n "$VRAM" ] || export VRAM="8"
+   [ -n "$CHROOT_FOLDER" ] || export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
 fi
 
 if [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
-   export VMNAME="Whonix-Workstation"
-   export vmname_lowercase_long_option="--tor-workstation"
-   export VMRAM="768"
-   export VRAM="128"
-   export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
+   [ -n "$VMNAME" ] || export VMNAME="Whonix-Workstation"
+   [ -n "$vmname_lowercase_long_option" ] || export vmname_lowercase_long_option="--tor-workstation"
+   [ -n "$VMRAM" ] || export VMRAM="768"
+   [ -n "$VRAM" ] || export VRAM="128"
+   [ -n "$CHROOT_FOLDER" ] || export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
 fi
 
 ## vmsize 100 GB does not matter because grml-debootstrap creates sparse files,
 ## i.e. only space, which gets actually filled up, will take disk space.
-export VMSIZE="100G"
-
-if [ "$WHONIX_BUILD_INTERNALRUN" = "1" ]; then
-   export VMNAME="internal"
-fi
+[ -n "$VMSIZE" ] || export VMSIZE="100G"
 
 if [ "$BARE_METAL" = "1" ]; then
-   export CHROOT_FOLDER=""
+   [ -n "$CHROOT_FOLDER" ] || export CHROOT_FOLDER=""
 else
-   export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
-   export BARE_METAL="0"
+   [ -n "$CHROOT_FOLDER" ] || export CHROOT_FOLDER="$WHONIX_BINARY/${VMNAME}_image"
+   [ -n "$BARE_METAL" ] || export BARE_METAL="0"
 fi
 
 if [ "$VMNAME" = "unknown" ]; then
@@ -120,9 +111,9 @@ if [ "$VMNAME" = "" ]; then
 fi
 
 if [ "$BARE_METAL" = "1" ]; then
-   CHROOT=""
+   [ -n "$CHROOT" ] || CHROOT=""
 else
-   CHROOT="chroot $CHROOT_FOLDER"
+   [ -n "$CHROOT" ] || CHROOT="chroot $CHROOT_FOLDER"
 fi
 
 ## {{{ whonix_build_ci_detected - CI detection code

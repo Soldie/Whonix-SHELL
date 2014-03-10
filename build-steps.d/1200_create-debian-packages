@@ -14,14 +14,45 @@ cd "$MYDIR"
 cd ..
 cd help-steps
 
-WHONIX_BUILD_PARSED="1"
-VMNAME="internalrun"
-
 source pre
-source variables
 
-cd "$MYDIR"
-cd ..
+parse_cmd_options() {
+   trap "error_handler_general" ERR INT TERM
+
+   while :
+   do
+       case $1 in
+           -h | --help | -\?)
+               script_help
+               exit 0
+               ;;
+           --currentsources | --current-sources)
+               whonix_build_sources_list="whonix_shared/usr/share/whonix/build_sources_debian_current.list"
+               whonix_build_grml_sources_list="http://ftp.us.debian.org/debian"
+               shift
+               ;;
+           --)
+               shift
+               break
+               ;;
+           -*)
+               true "${cyan}INFO: Option $1 ignored in this script. This is not necessarily a problem.${reset}"
+               ;;
+           *)
+               break
+               ;;
+       esac
+   done
+
+   source variables
+}
+
+change_dir() {
+   trap "error_handler_general" ERR INT TERM
+
+   cd "$MYDIR"
+   cd ..
+}
 
 signing_key() {
    trap "error_handler_general" ERR INT TERM
@@ -383,6 +414,7 @@ create_whonix_repository() {
 create-debian-packages() {
    trap "error_handler_general" ERR INT TERM
 
+   change_dir
    signing_key
    check_changelog_version
    cleanup_old_packages
@@ -395,6 +427,7 @@ create-debian-packages() {
 }
 
 true "${bold}${under}INFO: Currently running script: $0 ${1+"$@"}${reset}"
+parse_cmd_options ${1+"$@"}
 create-debian-packages
 benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
 true "${bold}${under}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"

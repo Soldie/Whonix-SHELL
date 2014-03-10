@@ -14,21 +14,29 @@ echo "
 ## Build Whonix.
 ##
 ## --clean
-## Deletes .img, .ova and VBox VMs.
+## Deletes .img, .ova and VirtualBox VM's.
+##
+## --virtualbox
+## Use this to build VirtualBox .ovas.
+##
+## --qcow2
+## Use this to build qcow2 images.
 ##
 ## --bare-metal
 ## Use this for Whonix with physical isolation.
 ##
 ## --torgateway
-## Builds Whonix-Gateway VBox machine.
+## Builds Whonix-Gateway.
 ##
 ## --torworkstation
-## Builds Whonix-Workstation VBox machine.
+## Builds Whonix-Workstation.
 ##
 ## --all (not yet implemented)
-## Build both VBox machines.
+## Build both machines.
 "
 }
+
+
 
 whonix_build_cmdoptions() {
    trap "error_handler_general" ERR INT TERM
@@ -37,7 +45,7 @@ whonix_build_cmdoptions() {
    ## http://mywiki.wooledge.org/BashFAQ/035
 
    if [ "$*" = "" ]; then
-      error "no option chosen. Use --help."
+      error_out "${red}${bold}no option chosen. Use --help.${reset}"
    fi
 
    while :
@@ -46,10 +54,6 @@ whonix_build_cmdoptions() {
            -h | --help | -\?)
                script_help
                exit 0
-               ;;
-           -a  | --all)
-               export WHONIX_BUILD_ALL="1"
-               shift
                ;;
            -tg | --tor-gateway | --torgateway)
                export WHONIX_BUILD_GATEWAY="1"
@@ -61,6 +65,18 @@ whonix_build_cmdoptions() {
                ;;
            -bm | --baremetal | --bare-metal)
                export BARE_METAL="1"
+               shift
+               ;;
+           --vbox | --virtualbox | --virtual-box)
+               export WHONIX_BUILD_VIRTUALBOX="true"
+               shift
+               ;;
+           --qcow2)
+               export WHONIX_BUILD_QCOW2="true"
+               shift
+               ;;
+           --nocompressqcow | --no-compress-qcow)
+               export WHONIX_BUILD_NO_COMPRESS_QCOW="true"
                shift
                ;;
            -f1 | --fast1)
@@ -89,7 +105,7 @@ whonix_build_cmdoptions() {
                break
                ;;
            -*)
-               error "unknown option: $1"
+               error_out "${red}${bold}unknown option: $1${reset}"
                ;;
            *)
                break
@@ -101,34 +117,47 @@ whonix_build_cmdoptions() {
    ## will remain in the "$@" positional parameters.
 
    if [ "$WHONIX_BUILD_ALL" = "1" ]; then
-      error "--all not yet implemented. (Help welcome!)"
+      error_out="${red}${bold}--all not yet implemented. (Help welcome!)${reset}"
    fi
 
    if [ ! "$WHONIX_BUILD_INTERNALRUN" = "1" ]; then
       if [ ! "$WHONIX_BUILD_MAIN_SCRIPT_STARTED" = "1" ]; then
          if [ "$WHONIX_BUILD_BUILD" = "1" ] && [ "$WHONIX_BUILD_CLEAN" = "1" ]; then
-            error "You must either use --build or --clean."
+            error_out "${red}${bold}You must either use --build or --clean.${reset}"
          fi
       fi
    fi
 
    if [ "$WHONIX_BUILD_ALL" = "1" ] && [ "$WHONIX_BUILD_GATEWAY" = "1" ]; then
-      error "You can not combine --all with --torgateway. You must either use --all or --torgateway."
+      error_out "${red}${bold}You can not combine --all with --torgateway. You must either use --all or --torgateway.${reset}"
    fi
 
    if [ "$WHONIX_BUILD_ALL" = "1" ] && [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
-      error "You can not combine --all with --torworkstation. You must either use --all or --torworkstation."
+      error_out "${red}${bold}You can not combine --all with --torworkstation. You must either use --all or --torworkstation.${reset}"
    fi
 
    if [ "$WHONIX_BUILD_GATEWAY" = "1" ] && [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
-      error "You can not combine --torgateway with --torworkstation. Use --all if that is what you want."
+      error_out "${red}${bold}You can not combine --torgateway with --torworkstation. Use --all if that is what you want.${reset}"
    fi
 
    if [ "$WHONIX_BUILD_GATEWAY" = "1" ] || [ "$WHONIX_BUILD_WORKSTATION" = "1" ] || [ "$WHONIX_BUILD_ALL" = "1" ]; then
       true
    else
-      error "You must add --torgateway or --torworkstation or --all."
+      error_out "${red}${bold}You must add --torgateway or --torworkstation or --all.${reset}"
    fi
+
+   if [ "$BARE_METAL" = "1" ]; then
+      true
+   elif [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+      true
+   elif [ "$WHONIX_BUILD_QCOW2" = "true" ]; then
+      true
+   else
+      error_out "${red}${bold}You must choose --bare-metal, --virtualbox or --qcow2.${reset}"
+   fi
+
+
+
 }
 
 whonix_build_cmdoptions ${1+"$@"}

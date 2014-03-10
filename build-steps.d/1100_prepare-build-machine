@@ -14,14 +14,68 @@ cd "$MYDIR"
 cd ..
 cd help-steps
 
-WHONIX_BUILD_PARSED="1"
 VMNAME="internalrun"
 no_git="1"
 no_dpkg_parsechangelog="1"
 whonix_build_on_operating_system_detect_skip="1"
 
 source pre
-source variables
+
+parse_cmd_options() {
+   trap "error_handler_general" ERR INT TERM
+
+   while :
+   do
+       case $1 in
+           -h | --help | -\?)
+               script_help
+               exit 0
+               ;;
+           -tg | --tor-gateway | --torgateway)
+               export WHONIX_BUILD_GATEWAY="1"
+               shift
+               ;;
+           -tw | --tor-workstation | --torworkstation)
+               export WHONIX_BUILD_WORKSTATION="1"
+               shift
+               ;;
+           -bm | --baremetal | --bare-metal)
+               export BARE_METAL="1"
+               shift
+               ;;
+           --vbox | --virtualbox | --virtual-box)
+               export WHONIX_BUILD_VIRTUALBOX="true"
+               shift
+               ;;
+           --qcow2)
+               export WHONIX_BUILD_QCOW2="true"
+               shift
+               ;;
+           --)
+               shift
+               break
+               ;;
+           -*)
+               true "${cyan}INFO: Option $1 ignored in this script. This is not necessarily a problem.${reset}"
+               ;;
+           *)
+               break
+               ;;
+       esac
+   done
+
+   if [ "$BARE_METAL" = "1" ]; then
+      true
+   elif [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+      true
+   elif [ "$WHONIX_BUILD_QCOW2" = "true" ]; then
+      true
+   else
+      error "${red}${bold}You must choose --bare-metal, --virtualbox or --qcow2.${reset}"
+   fi
+
+   source variables
+}
 
 check-virtualbox-vm-exists() {
    trap "error_handler_general" ERR INT TERM
@@ -593,6 +647,7 @@ can do this. Do not deploy these images! ${reset}"
 }
 
 true "${bold}${under}INFO: Currently running script: $0 ${1+"$@"}${reset}"
+parse_cmd_options ${1+"$@"}
 prepare-build-machine ${1+"$@"}
 benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
 true "${bold}${under}INFO: End of: $0 No error detected. (benchmark: $benchmark_took_time)${reset}"
