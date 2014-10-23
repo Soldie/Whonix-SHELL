@@ -249,6 +249,29 @@ create_whonix_debian_packages_without_building_system() {
    true "${cyan}$BASH_SOURCE INFO: Created Whonix Debian Packages. ${reset}"
 }
 
+create_whonix_debian_packages_using_cowbuilder() {
+   trap "error_handler_general" ERR INT TERM
+
+   ## Implemented in help-steps/pre.
+   maybe_enable_apt_cache
+
+   ## TODO
+   build_or_update="--update"
+
+   package_build_result_temp_folder="$WHONIX_BINARY/packages_temp/build_result"
+
+   cowbuilder \
+      $build_or_update \
+      --distribution "$whonix_build_apt_stable_release" \
+      --mirror "$whonix_build_apt_sources_mirror" \
+      --extrapackages "ruby-ronn python-dateutil"
+
+      #--buildresult "$package_build_result_temp_folder"
+
+   ## Implemented in help-steps/pre.
+   disable_apt_cache
+}
+
 create_whonix_repository() {
    trap "error_handler_general" ERR INT TERM
 
@@ -340,9 +363,19 @@ create-debian-packages() {
    sleep 3
 
    signing_key
-   get_extra_packages
-   create_whonix_debian_packages_without_building_system
-   create_whonix_repository
+
+   ## TODO: enable
+   #get_extra_packages
+
+   ## TODO: cmd option
+   #create_whonix_debian_packages_without_building_system
+
+   ## TODO: cmd option
+   create_whonix_debian_packages_using_cowbuilder
+
+   ## TODO: enable
+   ## TODO: adjust path when using create_whonix_debian_packages_using_cowbuilder
+   #create_whonix_repository
 }
 
 parse_cmd() {
