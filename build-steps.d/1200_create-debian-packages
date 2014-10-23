@@ -23,6 +23,77 @@ source variables
 cd "$MYDIR"
 cd ..
 
+get_variables() {
+   local temp
+   command -v dpkg-parsechangelog >/dev/null
+   OIFS="${IFS}"
+   NIFS=$'\n'
+   IFS="${NIFS}"
+   for line in $(dpkg-parsechangelog); do
+      ## Example line:
+      ## Version: 0.1-1
+      IFS="${OIFS}"
+      read -r first second _ <<< "$line"
+      ## Example first:
+      ## Version:
+      ## Example second:
+      ## 3:0.1-1
+      first="${first,,}"
+      ## Example first:
+      ## version
+      if [ "$first" = "version:" ]; then
+         changelog_version="$second"
+         ## Example changelog_version:
+         ## 3:0.1-1
+         revision="${second#*-}"
+         ## Example revision:
+         ## 1
+         temp="${second%-*}"
+         ## Example version:
+         ## 3:0.1
+         version="${temp#*:}"
+         ## Example version:
+         ## 0.1
+         epoch="${second%:*}"
+         ## Example epoch:
+         ## 3
+         break
+      fi
+   done
+   IFS="${OIFS}"
+   if [ "$version" = "" ]; then
+      true "ERROR: variable version is empty."
+      exit 1
+   fi
+   main_package_name="$mydir"
+   if [ "$main_package_name" = "" ]; then
+      true "ERROR: variable main_package_name is empty."
+      exit 1
+   fi
+   main_deb_file="../${main_package_name}_${version}-${revision}_all.deb"
+
+   local grep_output line a package
+   grep_output="$(grep "Package:" "debian/control")"
+   ## Example: grep_output
+   ## Package: anon-shared-packages-dependencies
+   ## Package: anon-shared-packages-recommended
+
+   package_list="$main_package_name"
+
+   OIFS="$IFS"
+   NIFS=$'\n'
+   IFS="$NIFS"
+   for line in $grep_output; do
+      IFS="$OIFS"
+      read a package _ <<< "$line"
+      if [ "$package" = "$main_package_name" ]; then
+         continue
+      fi
+      package_list="$package_list $package"
+   done
+   IFS="$OIFS"
+}
+
 signing_key() {
    trap "error_handler_general" ERR INT TERM
 
@@ -226,9 +297,7 @@ create_whonix_debian_packages_without_building_system() {
    shopt -s nullglob
    shopt -s dotglob
 
-   local list
-   list="$(echo "$WHONIX_SOURCE_FOLDER/packages/"* | sort)"
-   for item in $list; do
+   for item in "$WHONIX_SOURCE_FOLDER/packages/"*; do
       if [ ! -d "$item" ]; then
          true "INFO: Not a folder: $item"
          continue
@@ -260,14 +329,51 @@ create_whonix_debian_packages_using_cowbuilder() {
 
    ## TODO
    package_build_result_temp_folder="$WHONIX_BINARY/packages_temp/build_result"
+   package_build_pkg_src_temp_folder="$WHONIX_BINARY/packages_temp/pkg_src"
+
+   sudo -E -u "$user_name" mkdir --parents "$package_build_result_temp_folder"
+   sudo -E -u "$user_name" mkdir --parents "$package_build_pkg_src_temp_folder"
 
    cowbuilder \
       $build_or_update \
       --distribution "$whonix_build_apt_stable_release" \
       --mirror "$whonix_build_apt_sources_mirror" \
-      --extrapackages "$whonix_build_script_build_dependency"
+      --extrapackages "$whonix_build_script_build_dependency" \
+      --buildresult "$package_build_result_temp_folder"
 
-      #--buildresult "$package_build_result_temp_folder"
+   for item in "$WHONIX_SOURCE_FOLDER/packages/"*; do
+      if [ ! -d "$item" ]; then
+         true "INFO: Not a folder: $item"
+         continue
+      fi
+
+      ## Change directory to package folder, so get_variables works.
+      cd "$item"
+      ## Set mydir variable for get_variables.
+      mydir="${PWD##*/}"
+      get_variables
+
+      ## Change directory to $package_build_pkg_src_temp_folder so dpkg-source
+      ## will create the .dsc file within that folder.
+      cd "$package_build_pkg_src_temp_folder"
+
+      dpkg-source \
+         -c"$item/debian/control" \
+         -l"$item/debian/changelog" \
+         --format="3.0 (custom)" \
+         --target-format="3.0 (quilt)" \
+         -b "$package_build_result_temp_folder" \
+         "$package_build_pkg_src_temp_folder/${main_package_name}_${version}.orig.tar.gz"
+
+      test -f "$package_build_pkg_src_temp_folder/${main_package_name}_${version}-${revision}.dsc"
+
+      cowbuilder \
+         --build "$package_build_pkg_src_temp_folder/${main_package_name}_${version}-${revision}.dsc" \
+         --distribution "$whonix_build_apt_stable_release" \
+         --mirror "$whonix_build_apt_sources_mirror" \
+         --extrapackages "$whonix_build_script_build_dependency" \
+         --buildresult "$package_build_result_temp_folder"
+   done
 
    ## Implemented in help-steps/pre.
    disable_apt_cache
