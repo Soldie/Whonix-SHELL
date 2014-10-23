@@ -258,13 +258,14 @@ create_whonix_debian_packages_using_cowbuilder() {
    ## TODO
    build_or_update="--update"
 
+   ## TODO
    package_build_result_temp_folder="$WHONIX_BINARY/packages_temp/build_result"
 
    cowbuilder \
       $build_or_update \
       --distribution "$whonix_build_apt_stable_release" \
       --mirror "$whonix_build_apt_sources_mirror" \
-      --extrapackages "ruby-ronn python-dateutil"
+      --extrapackages "$whonix_build_script_build_dependency"
 
       #--buildresult "$package_build_result_temp_folder"
 
