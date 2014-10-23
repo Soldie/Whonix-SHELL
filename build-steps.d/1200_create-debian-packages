@@ -282,9 +282,17 @@ create_whonix_debian_packages_using_cowbuilder() {
 
       ## Change directory to package folder, so get_variables works.
       cd "$item"
+
       ## Set make_mydir variable for get_variables.
       make_mydir="${PWD##*/}"
+
+      ## Source make-helper.bsh to get function make_get_variables.
       source make-helper.bsh
+
+      ## Sets:
+      ## - make_main_package_name
+      ## - make_pkg_version
+      ## - make_pkg_revision
       make_get_variables
 
       ## Create upstream_tarball.
