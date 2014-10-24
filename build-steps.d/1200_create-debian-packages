@@ -296,7 +296,8 @@ create_whonix_debian_packages_using_cowbuilder() {
       make_get_variables
 
       ## Create upstream_tarball.
-      make dist
+      sudo -E -u "$user_name" \
+         make dist
 
       ## Change directory to $package_build_pkg_src_temp_folder so dpkg-source
       ## will create the .dsc file within that folder.
@@ -310,18 +311,38 @@ create_whonix_debian_packages_using_cowbuilder() {
       test -f "$upstream_tarball"
 
       ## Create debian_source_control_file.
-      dpkg-source \
-         -c"$item/debian/control" \
-         -l"$item/debian/changelog" \
-         --format="3.0 (custom)" \
-         --target-format="3.0 (quilt)" \
-         -b "$package_build_result_temp_folder" \
-         "$upstream_tarball"
+      sudo -E -u "$user_name" \
+         dpkg-source \
+            -c"$item/debian/control" \
+            -l"$item/debian/changelog" \
+            --format="3.0 (custom)" \
+            --target-format="3.0 (quilt)" \
+            -b "$package_build_result_temp_folder" \
+            "$upstream_tarball"
 
       ## Sanity test.
       test -f "$debian_source_control_file"
 
       cd "$item"
+
+      ## TODO
+      set -e
+      unset parse_tmp_apt_get_gpgv
+      unset create_tmp_apt_get_gpgv
+      unset delete_tmp_apt_get_gpgv
+      unset error_handler_unmount
+      unset error_handler_shell
+      unset error_handler_exit
+      unset error_handler_shared
+      unset error_handler_general
+      unset error_handler_retry
+      unset error_handler_shared_process
+      unset disable_apt_cache
+      unset maybe_enable_apt_cache
+      unset convertsecs
+      unset error_handler_unchroot_unprevent_unmount
+      unset benchmark_time_end
+      unset benchmark_time_start
 
       cowbuilder \
          --build "$debian_source_control_file" \
