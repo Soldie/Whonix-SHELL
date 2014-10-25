@@ -350,10 +350,10 @@ create_whonix_debian_packages_using_cowbuilder() {
       unset error_handler_general
       unset error_handler_retry
       unset error_handler_shared_process
+      unset error_handler_unchroot_unprevent_unmount
       unset disable_apt_cache
       unset maybe_enable_apt_cache
       unset convertsecs
-      unset error_handler_unchroot_unprevent_unmount
       unset benchmark_time_end
       unset benchmark_time_start
 
