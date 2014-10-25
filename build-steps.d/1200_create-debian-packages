@@ -339,25 +339,8 @@ create_whonix_debian_packages_using_cowbuilder() {
       cd "$item"
 
       ## TODO: cowbuilder does not like exported bash functions for some reason.
-      set -e
-      unset parse_tmp_apt_get_gpgv
-      unset create_tmp_apt_get_gpgv
-      unset delete_tmp_apt_get_gpgv
-      unset error_handler_unmount
-      unset error_handler_shell
-      unset error_handler_exit
-      unset error_handler_shared
-      unset error_handler_general
-      unset error_handler_retry
-      unset error_handler_shared_process
-      unset error_handler_unchroot_unprevent_unmount
-      unset disable_apt_cache
-      unset maybe_enable_apt_cache
-      unset convertsecs
-      unset benchmark_time_end
-      unset benchmark_time_start
-
-      cowbuilder \
+      ## Not preserving environment to get rid of exported bash functions.
+      sudo cowbuilder \
          --build "$debian_source_control_file" \
          --distribution "$whonix_build_apt_stable_release" \
          --mirror "$whonix_build_apt_sources_mirror" \
