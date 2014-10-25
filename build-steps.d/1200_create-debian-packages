@@ -261,8 +261,8 @@ create_whonix_debian_packages_using_cowbuilder() {
    sudo -E -u "$user_name" mkdir --parents "$package_build_pkg_src_temp_folder"
 
    ## TODO
-   create_or_update="--create"
-   #create_or_update="--update"
+   #create_or_update="--create"
+   create_or_update="--update"
 
    ## TODO:
    ## Install config-package-dev from jessie as build dependency into wheezy base.cow.
