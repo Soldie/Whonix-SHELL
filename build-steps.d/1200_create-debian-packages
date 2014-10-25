@@ -296,7 +296,7 @@ create_whonix_debian_packages_using_cowbuilder() {
       ## - make_pkg_revision
       make_get_variables
 
-      ## Required to configure output path for "make dist".
+      ## Required to configure output path for "make dist" and "make debdist".
       export DISTDIR="$package_build_pkg_src_temp_folder"
 
       ## Create upstream_tarball.
