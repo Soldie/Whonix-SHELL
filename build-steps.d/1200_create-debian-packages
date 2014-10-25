@@ -254,14 +254,18 @@ create_whonix_debian_packages_using_cowbuilder() {
    maybe_enable_apt_cache
 
    ## TODO
-   build_or_update="--update"
-
-   ## TODO
    package_build_result_temp_folder="$WHONIX_BINARY/packages_temp/build_result"
    package_build_pkg_src_temp_folder="$WHONIX_BINARY/packages_temp/pkg_src"
 
    sudo -E -u "$user_name" mkdir --parents "$package_build_result_temp_folder"
    sudo -E -u "$user_name" mkdir --parents "$package_build_pkg_src_temp_folder"
+
+   ## TODO
+   #build_or_update="--build"
+   build_or_update="--update"
+
+   ## TODO:
+   ## Install config-package-dev from jessie as build dependency into wheezy base.cow.
 
    cowbuilder \
       $build_or_update \
@@ -276,9 +280,6 @@ create_whonix_debian_packages_using_cowbuilder() {
          true "INFO: Not a folder: $item"
          continue
       fi
-
-      ## Required to configure output path for "make dist".
-      export DISTDIR="$package_build_pkg_src_temp_folder"
 
       ## Change directory to package folder, so get_variables works.
       cd "$item"
@@ -295,6 +296,9 @@ create_whonix_debian_packages_using_cowbuilder() {
       ## - make_pkg_revision
       make_get_variables
 
+      ## Required to configure output path for "make dist".
+      export DISTDIR="$package_build_pkg_src_temp_folder"
+
       ## Create upstream_tarball.
       sudo -E -u "$user_name" \
          make dist
@@ -302,6 +306,8 @@ create_whonix_debian_packages_using_cowbuilder() {
       ## Create debian_source_tarball.
       sudo -E -u "$user_name" \
          make debdist
+
+      unset DISTDIR
 
       ## Change directory to $package_build_pkg_src_temp_folder so dpkg-source
       ## will create the .dsc file within that folder.
