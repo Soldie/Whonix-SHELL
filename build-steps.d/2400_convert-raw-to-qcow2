@@ -18,10 +18,10 @@ source pre
 source variables
 
 convert_raw-to_qcow2() {
-   trap "error_handler_general" ERR INT TERM
+   errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
-   if [ ! "$whonix_build_script_create_qcow2" = "1" ]; then
-      true "${green}INFO: Skipping $BASH_SOURCE, because whonix_build_script_create_qcow2 is not set to 1.${reset}"
+   if [ ! "$WHONIX_BUILD_QCOW2" = "true" ]; then
+      true "${green}INFO: Skipping $BASH_SOURCE, because WHONIX_BUILD_QCOW2 is not set to true.${reset}"
       return 0
    fi
 
@@ -59,6 +59,6 @@ if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
 else
    true "${bold}${under}INFO: Currently running script: $BASH_SOURCE ${1+"$@"}${reset}"
    convert_raw-to_qcow2
-   benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
-   true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} No error detected. (benchmark: $benchmark_took_time)${reset}"
+   benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
+   true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} | $whonix_build_error_counter error(s) detected. (benchmark: $benchmark_took_time)${reset}"
 fi

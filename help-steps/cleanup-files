@@ -14,7 +14,7 @@ cd "$MYDIR"
 cd ..
 cd help-steps
 
-WHONIX_BUILD_PARSED="1"
+whonix_build_one_parsed="1"
 ROOT_CHECK="0"
 VMNAME="internalrun"
 
@@ -22,7 +22,7 @@ source pre
 source variables
 
 cleanup_files() {
-   trap "error_handler_general" ERR INT TERM
+   errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    shopt -s nullglob
    shopt -s dotglob
@@ -43,5 +43,5 @@ cleanup_files() {
 
 true "${bold}INFO: Currently running script: $BASH_SOURCE ${1+"$@"}${reset}"
 cleanup_files
-benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
-true "${bold}INFO: End of: $BASH_SOURCE ${1+"$@"} No error detected. (benchmark: $benchmark_took_time)${reset}"
+benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
+true "${bold}INFO: End of: $BASH_SOURCE ${1+"$@"} | $whonix_build_error_counter error(s) detected. (benchmark: $benchmark_took_time)${reset}"

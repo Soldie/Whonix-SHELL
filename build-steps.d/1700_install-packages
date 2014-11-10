@@ -18,7 +18,7 @@ source pre
 source variables
 
 ## Debugging function.
-parse_apt_get_unmet_dependency() {
+apt_get_parse_unmet_dependency() {
    ## no error handler
 
    true "INFO: Running \"dpkg -l | grep $pkg\"..."
@@ -60,7 +60,7 @@ Will try to manually install it for debugging...${reset}"
          true "INFO: Running \"dpkg -l | grep $unmet_dependency\"..."
          dpkg -l | grep "$unmet_dependency"
          apt-cache policy "$unmet_dependency"
-         install-pkg "$unmet_dependency" || true
+         pkg-install-maybe "$unmet_dependency" || true
          set +x
          echo "${bold}${cyan}INFO: Attempt to install unmet_dependency: $unmet_dependency done.${reset}"
          IFS="${NIFS}"
@@ -73,8 +73,8 @@ Will try to manually install it for debugging...${reset}"
    IFS="${OIFS}"
 }
 
-install-pkg() {
-   trap "error_handler_unchroot_unprevent_unmount" ERR INT TERM
+pkg-install-maybe() {
+   errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
 
    pkg="$1"
    local skip_package
@@ -171,27 +171,38 @@ variable for debugging. This may take a while...${reset}"
    fi
 
    true "${bold}${red}ERROR: As expected, failed again to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
-Trying to diagnose the problem using function parse_apt_get_unmet_dependency...${reset}"
+Trying to diagnose the problem using function apt_get_parse_unmet_dependency...${reset}"
 
-   parse_apt_get_unmet_dependency
-   true "INFO: Tried to diagnose the problem using function parse_apt_get_unmet_dependency."
+   apt_get_parse_unmet_dependency
+   true "INFO: Tried to diagnose the problem using function apt_get_parse_unmet_dependency."
    error "See above!"
    return 0
 }
 
+backup-file-if-exists() {
+   errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
+
+   if [ -f "$1" ]; then
+      cp --no-clobber --recursive --preserve "$1" "$1.backup"
+   else
+      true "INFO: file $1 does not exist, skipping backup, ok."
+   fi
+   true
+}
+
 install-packages() {
-   trap "error_handler_unchroot_unprevent_unmount" ERR INT TERM
+   errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
 
    if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
-      if [ ! -f "$WHONIX_LOCAL_SIGNING_KEY_FOLDER"/done ]; then
+      if [ ! -f "$WHONIX_LOCAL_SIGNING_KEY_FOLDER/done" ]; then
          error "${red}${bold}$BASH_SOURCE ERROR: $WHONIX_LOCAL_SIGNING_KEY_FOLDER/done does not exist. Most likely build-steps.d/1200_create-debian-packages has not been run yet.${reset}"
       fi
    fi
 
    sync
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/mount-raw
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/prevent-daemons-from-starting
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/mount-raw"
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/prevent-daemons-from-starting"
 
    sync
 
@@ -202,30 +213,30 @@ install-packages() {
 
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       ## Backup exiting /etc/apt/sources.list, might be useful for bare metal users.
-      cp --no-clobber --recursive --preserve "$CHROOT_FOLDER"/etc/apt/sources.list "$CHROOT_FOLDER"/etc/apt/sources.list.backup
+      backup-file-if-exists "$CHROOT_FOLDER/etc/apt/sources.list"
 
       ## Backup exiting /etc/resolv.conf, so we can later use it in help-steps/chroot-img.
-      cp --no-clobber --recursive --preserve "$CHROOT_FOLDER"/etc/resolv.conf "$CHROOT_FOLDER"/etc/resolv.conf.backup
+      backup-file-if-exists "$CHROOT_FOLDER/etc/resolv.conf"
 
       ## Backup exiting /etc/hosts so we can later use it in help-steps/chroot-img.
-      cp --no-clobber --recursive --preserve "$CHROOT_FOLDER"/etc/hosts "$CHROOT_FOLDER"/etc/hosts.backup
+      backup-file-if-exists "$CHROOT_FOLDER/etc/hosts"
 
       ## Backup exiting /etc/hostname so we can later use it in help-steps/chroot-img.
-      cp --no-clobber --recursive --preserve "$CHROOT_FOLDER"/etc/hostname "$CHROOT_FOLDER"/etc/hostname.backup
+      backup-file-if-exists "$CHROOT_FOLDER/etc/hostname"
 
       ## Backup exiting /etc/network/interfaces so we can later use it in help-steps/chroot-img.
-      cp --no-clobber --recursive --preserve "$CHROOT_FOLDER"/etc/network/interfaces "$CHROOT_FOLDER"/etc/network/interfaces.backup
+      backup-file-if-exists "$CHROOT_FOLDER/etc/network/interfaces"
    fi
 
    ## We have to fix /etc/apt/sources.list, because the list which comes with
    ## grml-debootstrap is incomplete (does not complain debian security repository) and points to 127.0.0.1.
-   mv "$CHROOT_FOLDER"/etc/apt/sources.list "$CHROOT_FOLDER"/etc/apt/sources.list.backup || true
+   mv "$CHROOT_FOLDER/etc/apt/sources.list" "$CHROOT_FOLDER/etc/apt/sources.list.backup" || true
 
    ## Implemented in help-steps/pre.
-   apt_cache_maybe_enable
+   aptcachemaybeenable
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/create-local-temp-apt-repo
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/chroot-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/create-local-temp-apt-repo"
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
    ## Debugging.
    $CHROOT ls -la /etc/apt/trusted.gpg.d
@@ -236,30 +247,30 @@ install-packages() {
    ## Reading apt repository containing snapshot.debian.org and repository containing Whonix's packages.
    $CHROOT apt-get $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_unattended_opts --fix-missing update
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unchroot-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unchroot-raw"
 
    ## {{ controversy of: /etc/resolv.conf /etc/hosts /etc/hostname /etc/network/interfaces,
    ##    see help-steps/chroot-raw for more information.
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/create-local-temp-apt-repo
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/create-local-temp-apt-repo"
    export WHONIX_CHROOT_MOUNT_RESOLV_CONF="0"
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/chroot-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
    if [ "$WHONIX_BUILD_GATEWAY" = "1" ]; then
-      install-pkg whonix-gateway-packages-dependencies-pre
+      pkg-install-maybe whonix-gateway-packages-dependencies-pre
    elif [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
-      install-pkg whonix-workstation-packages-dependencies-pre
+      pkg-install-maybe whonix-workstation-packages-dependencies-pre
    else
       bug "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
    fi
 
    unset WHONIX_CHROOT_MOUNT_RESOLV_CONF
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unchroot-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unchroot-raw"
 
    ## }}
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/create-local-temp-apt-repo
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/chroot-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/create-local-temp-apt-repo"
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
    $CHROOT ls -la /mnt/initialdeb/dists/local/ || true
    $CHROOT ls -la /mnt/initialdeb/dists/local/main/binary-i386/ || true
@@ -316,7 +327,7 @@ install-packages() {
 
    if [ "$CI" = "true" ]; then
       ## Debugging Travis CI.
-      $CHROOT apt-get $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_unattended_opts install zenity
+      $CHROOT apt-get $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_unattended_opts install zenity || true
    fi
 
    ## Debugging.
@@ -336,65 +347,80 @@ builders using custom configurations, skipping packages such as Terminal-Only. w
 $whonix_build_script_whonix_package${reset}"
    fi
 
-   install-pkg anon-shared-build-apt-sources-tpo
-   install-pkg anon-shared-build-upgrade-torsocks
+   pkg-install-maybe anon-shared-build-apt-sources-tpo
+   pkg-install-maybe anon-shared-build-upgrade-torsocks
 
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${bold}${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set to 1. Skipping kernel installation (one should already be installed), ok.${reset}"
    else
-      true "${bold}${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set not set to 1. Starting kernel installation...${reset}"
-      true "${bold}${cyan}INFO: BUILD_KERNEL_PKGS: ${BUILD_KERNEL_PKGS}${reset}"
-      local build_kernel
-      for build_kernel in $BUILD_KERNEL_PKGS; do
-         install-pkg "$build_kernel"
-      done
-      true "${bold}${cyan}INFO: kernel installation done.${reset}"
+      if [ "$BUILD_KERNEL_PKGS" = "none" ]; then
+         true "${bold}${cyan}INFO: BUILD_KERNEL_PKGS: ${BUILD_KERNEL_PKGS} - Skipping kernel installation.${reset}"
+      else
+         true "${bold}${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set not set to 1. Starting kernel installation...${reset}"
+         true "${bold}${cyan}INFO: BUILD_KERNEL_PKGS: ${BUILD_KERNEL_PKGS}${reset}"
+         local build_kernel
+         for build_kernel in $BUILD_KERNEL_PKGS; do
+            pkg-install-maybe "$build_kernel"
+         done
+      fi
+      if [ "$BUILD_HEADER_PKGS" = "none" ]; then
+         true "${bold}${cyan}INFO: BUILD_HEADER_PKGS: ${BUILD_HEADER_PKGS} - Skipping kernel header installation.${reset}"
+      else
+         true "${bold}${cyan}INFO: kernel installation done.${reset}"
+         true "${bold}${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set not set to 1. Starting kernel header installation...${reset}"
+         true "${bold}${cyan}INFO: BUILD_HEADER_PKGS: ${BUILD_HEADER_PKGS}${reset}"
+         local build_header
+         for build_header in $BUILD_HEADER_PKGS; do
+            pkg-install-maybe "$build_header"
+         done
+         true "${bold}${cyan}INFO: kernel header installation done.${reset}"
+      fi
    fi
 
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set to 1, skipping installation of anon-shared-build-fix-grub, ok.${reset}"
    else
-      install-pkg anon-shared-build-fix-grub
+      pkg-install-maybe anon-shared-build-fix-grub
    fi
 
-   install-pkg anon-shared-build-log-build-version
-   install-pkg anon-shared-build-remember-sources
-   install-pkg anon-shared-build-ban-nonfree
-   install-pkg anon-shared-build-sanity-checks
+   pkg-install-maybe anon-shared-build-log-build-version
+   pkg-install-maybe anon-shared-build-remember-sources
+   pkg-install-maybe anon-shared-build-ban-nonfree
+   pkg-install-maybe anon-shared-build-sanity-checks
 
-   install-pkg anon-shared-packages-dependencies
-   install-pkg anon-shared-packages-recommended
+   pkg-install-maybe anon-shared-packages-dependencies
+   pkg-install-maybe anon-shared-packages-recommended
 
-   install-pkg anon-shared-desktop
+   pkg-install-maybe anon-shared-desktop
 
-   install-pkg anon-shared-desktop-kde
+   pkg-install-maybe anon-shared-desktop-kde
 
-   install-pkg anon-shared-kde-accessibility
+   pkg-install-maybe anon-shared-kde-accessibility
 
-   install-pkg whonix-shared-packages-dependencies
-   install-pkg whonix-shared-packages-recommended
+   pkg-install-maybe whonix-shared-packages-dependencies
+   pkg-install-maybe whonix-shared-packages-recommended
 
    if [ "$WHONIX_BUILD_GATEWAY" = "1" ]; then
-      install-pkg anon-gw-build-upgrade-tor
-      install-pkg anon-gateway-packages-dependencies
-      install-pkg anon-gateway-packages-recommended
-      install-pkg whonix-gateway-packages-dependencies
-      install-pkg whonix-gateway-packages-recommended
-      install-pkg whonix-gateway
+      pkg-install-maybe anon-gw-build-upgrade-tor
+      pkg-install-maybe anon-gateway-packages-dependencies
+      pkg-install-maybe anon-gateway-packages-recommended
+      pkg-install-maybe whonix-gateway-packages-dependencies
+      pkg-install-maybe whonix-gateway-packages-recommended
+      pkg-install-maybe whonix-gateway
    elif [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
-      install-pkg anon-shared-build-inst-tb
-      install-pkg anon-workstation-packages-dependencies
-      install-pkg anon-workstation-packages-recommended
-      install-pkg anon-workstation-default-applications
-      install-pkg whonix-workstation-packages-dependencies
-      install-pkg whonix-workstation-packages-recommended
-      install-pkg whonix-workstation
+      pkg-install-maybe anon-shared-build-inst-tb
+      pkg-install-maybe anon-workstation-packages-dependencies
+      pkg-install-maybe anon-workstation-packages-recommended
+      pkg-install-maybe anon-workstation-default-applications
+      pkg-install-maybe whonix-workstation-packages-dependencies
+      pkg-install-maybe whonix-workstation-packages-recommended
+      pkg-install-maybe whonix-workstation
    else
       bug "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
    fi
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/remove-local-temp-apt-repo
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unprevent-daemons-from-starting
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/remove-local-temp-apt-repo"
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unprevent-daemons-from-starting"
 
    ## Forget about local repository containing Whonix's packages.
    #$CHROOT apt-get --no-download --list-cleanup update
@@ -405,8 +431,8 @@ $whonix_build_script_whonix_package${reset}"
    $CHROOT sync
    sync
 
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unchroot-raw
-   "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unmount-raw
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unchroot-raw"
+   "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unmount-raw"
 
    sync
 }
@@ -421,5 +447,5 @@ elif [ "$WHONIX_BUILD_CUSTOM_WORKSTATION" = "1" ]; then
 else
    bug "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
 fi
-benchmark_time_end ## sets benchmark_took_time (implemented in help-steps/pre)
-true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} No error detected. (benchmark: $benchmark_took_time)${reset}"
+benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
+true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} | $whonix_build_error_counter error(s) detected. (benchmark: $benchmark_took_time)${reset}"

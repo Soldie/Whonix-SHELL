@@ -19,9 +19,9 @@ MYDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$MYDIR"
 cd ..
 
-## WHONIX_BUILD_PARSED is read by help-steps/variables (help-steps/parse-cmd)
+## whonix_build_one_parsed is read by help-steps/variables (help-steps/parse-cmd)
 ## and by help-steps/mount-raw and help-steps/unmount-raw.
-export WHONIX_BUILD_PARSED="1"
+export whonix_build_one_parsed="1"
 export VMNAME="internalrun"
 
 cd help-steps
@@ -29,7 +29,7 @@ source pre
 source variables
 
 script_help() {
-   trap "error_handler_general" ERR INT TERM
+   errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    echo "\
 Required options:
@@ -70,7 +70,7 @@ and https://www.whonix.org/wiki/Trust"
 }
 
 parse_cmd() {
-   trap "error_handler_general" ERR INT TERM
+   errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    ## Thanks to:
    ## http://mywiki.wooledge.org/BashFAQ/035
@@ -1177,7 +1177,7 @@ parse_endcomment() {
    trap "error_handler" ERR INT TERM
 
    if [ "$endcomment" = "" ]; then
-      endcomment="INFO: No endcomment. No error detected."
+      endcomment="INFO: No endcomment. | $whonix_build_error_counter error(s) detected."
    fi
 
    endcomment="\
@@ -1190,7 +1190,7 @@ $endcomment"
 end() {
    trap "error_handler" ERR INT TERM
 
-   true "${bold}${cyan}INFO: End. No error detected. ${reset}"
+   true "${bold}${cyan}INFO: End. | $whonix_build_error_counter error(s) detected. ${reset}"
 }
 
 parse_cmd ${1+"$@"}
