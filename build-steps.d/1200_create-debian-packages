@@ -344,9 +344,12 @@ create_whonix_debian_packages_using_cowbuilder() {
 
       cd "$item"
 
-      ## TODO: cowbuilder does not like exported bash functions for some reason.
-      ## Not preserving environment to get rid of exported bash functions.
-      sudo cowbuilder \
+      ## TODO: Obsolete? "cowbuilder does not like exported bash functions for
+      ## some reason. Not preserving environment to get rid of exported bash
+      ## functions." - Should not require "sudo" anymore. Likely it has been
+      ## fixed by:
+      ## https://github.com/Whonix/Whonix/issues/367
+      cowbuilder \
          --build "$debian_source_control_file" \
          --distribution "$whonix_build_apt_stable_release" \
          --mirror "$whonix_build_apt_sources_mirror" \
