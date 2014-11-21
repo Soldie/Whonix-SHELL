@@ -110,6 +110,19 @@ signing_key() {
                              --keyid-format "0xlong" \
                              --fingerprint \
                              --list-secret-keys
+
+   true "INFO: GPG_AGENT_INFO: $GPG_AGENT_INFO"
+   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
+      true
+   else
+      if [ "$GPG_AGENT_INFO" = "" ]; then
+         true "${cyan}${bold}INFO: Variable GPG_AGENT_INFO is not set. gnupg-agent will not be available. Did you forget adding -E to sudo?${reset}"
+      fi
+      ## Eventually letting builder cache its gpg passwords early, so we do not
+      ## pause the build process later when reprepro creates the local apt
+      ## repository.
+      "$WHONIX_SOURCE_HELP_STEPS_FOLDER/gpg_test_sign"
+   fi
 }
 
 check_for_uncommited_changes() {
@@ -154,6 +167,11 @@ cleanup_old_packages() {
 
 get_extra_packages() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
+
+   if [ "$whonix_build_pkg_apparmor_only" = "true" ]; then
+      true "${cyan}$BASH_SOURCE INFO: Skipping $FUNCNAME, because whonix_build_pkg_apparmor_only is set to $whonix_build_pkg_apparmor_only. ${reset}"
+      return 0
+   fi
 
    true "${cyan}$BASH_SOURCE INFO: Getting extra packages... ${reset}"
 
@@ -213,16 +231,6 @@ create_whonix_debian_packages_without_building_system() {
    ## -sa is understood by dpkg-buildpackage, it forces the inclusion of the original source
    ## See also http://www.debian.org/doc/manuals/maint-guide/upload.en.html.
 
-   true "INFO: GPG_AGENT_INFO: $GPG_AGENT_INFO"
-   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
-      true
-   else
-      if [ "$GPG_AGENT_INFO" = "" ]; then
-         true "${cyan}${bold}INFO: Variable GPG_AGENT_INFO is not set. \
-         gnupg-agent will not be available. Did you forget adding -E to sudo?${reset}"
-      fi
-   fi
-
    shopt -s nullglob
    shopt -s dotglob
 
@@ -237,6 +245,14 @@ create_whonix_debian_packages_without_building_system() {
       if [ "$base_name" = "whonix-developer-meta-files" ]; then
          true "INFO: Skipping $base_name as expected."
          continue
+      fi
+      if [ "$whonix_build_pkg_apparmor_only" = "true" ]; then
+         if [ "$(echo "$base_name" | grep "apparmor-profile-")" ]; then
+            true "${cyan}INFO: Building apparmor profile: $base_name ${reset}"
+         else
+            true "${cyan}INFO${reset}: Skipping $base_name as expected because using whonix_build_pkg_apparmor_only is set to $whonix_build_pkg_apparmor_only."
+            continue
+         fi
       fi
       if [ "$CI" = "true" ]; then
          ## Hiding,
@@ -366,14 +382,12 @@ create_whonix_repository() {
 
    if [ "$WHONIX_BUILD_APT_CODENAME" = "local" ]; then
       true "${cyan}$BASH_SOURCE INFO: Purging ${under}local${eunder} APT repository... ${reset}"
-
       sudo -E -u "$user_name" \
          reprepro \
             -V \
             -V \
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             removematched "$WHONIX_BUILD_APT_CODENAME" "*"
-
       true "${cyan}$BASH_SOURCE INFO: Done, purged ${under}${WHONIX_BUILD_APT_CODENAME}${eunder} APT repository. ${reset}"
    else
       true "${cyan}$BASH_SOURCE INFO: Not purging APT repository, because distribution is ${under}${WHONIX_BUILD_APT_CODENAME}${eunder}. ${reset}"
@@ -383,10 +397,9 @@ create_whonix_repository() {
 
    shopt -s dotglob
    shopt -s nullglob
-   local list file_name
+   local file_name
 
    #true "${cyan}$BASH_SOURCE INFO: Importing .dsc file... ${reset}"
-
    #for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".dsc"; do
       #sudo -E -u "$user_name" \
          #reprepro \
@@ -395,25 +408,32 @@ create_whonix_repository() {
             #$WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             #includedsc "$WHONIX_BUILD_APT_CODENAME" "$file_name"
    #done
-
    #true "${cyan}$BASH_SOURCE INFO: Done, imported .dsc file. ${reset}"
 
-   true "${cyan}$BASH_SOURCE INFO: Importing .changes file... ${reset}"
+   #true "${cyan}$BASH_SOURCE INFO: Importing .changes file... ${reset}"
+   #for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".changes"; do
+      #sudo -E -u "$user_name" \
+         #reprepro \
+            #-V \
+            #-V \
+            #$WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
+            #--ignore=wrongdistribution \
+            #include "$WHONIX_BUILD_APT_CODENAME" "$file_name"
+   #done
+   #true "${cyan}$BASH_SOURCE INFO: Done, imported .changes file. ${reset}"
 
-   for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".changes"; do
+   true "${cyan}$BASH_SOURCE INFO: Importing .deb files... ${reset}"
+   for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".deb"; do
       sudo -E -u "$user_name" \
          reprepro \
-            -V \
-            -V \
+            --gnupghome "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" \
+            --basedir "$WHONIX_APT_REPOSITORY_FOLDER" \
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
-            --ignore=wrongdistribution \
-            include "$WHONIX_BUILD_APT_CODENAME" "$file_name"
+            includedeb "$WHONIX_BUILD_APT_CODENAME" "$file_name"
    done
-
-   true "${cyan}$BASH_SOURCE INFO: Done, imported .changes file. ${reset}"
+   true "${cyan}$BASH_SOURCE INFO: Imported .deb files. ${reset}"
 
    true "${cyan}$BASH_SOURCE INFO: Importing temp_extra_packages .deb files... ${reset}"
-
    for file_name in "$WHONIX_BINARY/temp_extra_packages/"*".deb"; do
       sudo -E -u "$user_name" \
          reprepro \
@@ -422,16 +442,15 @@ create_whonix_repository() {
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             includedeb "$WHONIX_BUILD_APT_CODENAME" "$file_name"
    done
-
    true "${cyan}$BASH_SOURCE INFO: Imported temp_extra_packages .deb files. ${reset}"
 
    ## Debugging.
-   true "${cyan}$BASH_SOURCE INFO: Displaying sha512sum of $WHONIX_APT_REPOSITORY_FOLDER/pool/**... ${reset}"
-   shopt -s globstar dotglob
+   #true "${cyan}$BASH_SOURCE INFO: Displaying sha512sum of $WHONIX_APT_REPOSITORY_FOLDER/pool/**... ${reset}"
+   #shopt -s globstar dotglob
    ## "|| true", because "sha512sum" exits 1, because "sha512sum: [...]: Is a directory".
-   sha512sum "$WHONIX_APT_REPOSITORY_FOLDER/pool/"** || true
-   shopt -u globstar dotglob
-   true "${cyan}$BASH_SOURCE INFO: Done, displayed sha512sums. ${reset}"
+   #sha512sum "$WHONIX_APT_REPOSITORY_FOLDER/pool/"** || true
+   #shopt -u globstar dotglob
+   #true "${cyan}$BASH_SOURCE INFO: Done, displayed sha512sums. ${reset}"
 
    true "${cyan}$BASH_SOURCE INFO: Done, created ${under}${WHONIX_BUILD_APT_CODENAME}${eunder} APT repository. ${reset}"
 }
@@ -484,6 +503,10 @@ parse_cmd() {
                   exit 1
                fi
                shift 2
+               ;;
+           --apparmor)
+               whonix_build_pkg_apparmor_only="true"
+               shift
                ;;
            *)
                break
