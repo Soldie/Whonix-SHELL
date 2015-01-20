@@ -23,60 +23,45 @@ root_check
 
 ## Debugging function.
 apt_get_parse_unmet_dependency() {
-   ## no error handler
-
    true "INFO: Running \"dpkg -l | grep $pkg\"..."
-   dpkg -l | grep "$pkg"
-   apt-cache policy "$pkg"
+   dpkg -l | grep "$pkg" || true
+   apt-cache policy "$pkg" || true
 
    local line
 
    ## Thanks to:
    ## http://blog.edwards-research.com/2010/01/quick-bash-trick-looping-through-output-lines/
 
-   OIFS="${IFS}"
-   NIFS=$'\n'
-
-   IFS="${NIFS}"
-
    set +x
 
    declare -A -g remember_pkg
 
-   for line in ${apt_get_output} ; do
-      IFS="${OIFS}"
+   while read -r -d $'\n' line; do
       local unmet_dependency=""
-      unmet_dependency="$(echo "${line}" | grep -o "Depends:.*" | awk '{print $2}')"
+      unmet_dependency="$(echo "${line}" | grep -o "Depends:.*" | awk '{print $2}')" || true
       if [ "$unmet_dependency" = "" ]; then
          ## no match
-         IFS="${NIFS}"
          continue
       else
          ## match
          if [ "${remember_pkg[$unmet_dependency]}" = "true" ]; then
             continue
          fi
-         IFS="${OIFS}"
          echo "${bold}${cyan}INFO: Found unmet dependency: $unmet_dependency. \
 Will try to manually install it for debugging...${reset}"
          remember_pkg[$unmet_dependency]="true"
          set -x
-set -e
          true "INFO: Running \"dpkg -l | grep $unmet_dependency\"..."
-         dpkg -l | grep "$unmet_dependency"
-         apt-cache policy "$unmet_dependency"
+         dpkg -l | grep "$unmet_dependency" || true
+         apt-cache policy "$unmet_dependency" || true
          pkg-install-maybe "$unmet_dependency" || true
          set +x
          echo "${bold}${cyan}INFO: Attempt to install unmet_dependency: $unmet_dependency done.${reset}"
-         IFS="${NIFS}"
          continue
       fi
-   done
+   done < <( echo "$apt_get_output" )
 
    set -x
-set -e
-
-   IFS="${OIFS}"
 }
 
 pkg-install-maybe() {
@@ -135,13 +120,6 @@ This may take a while...${reset}"
       return 0
    fi
 
-   if [ "$CI" = "true" ]; then
-      ## Debugging Travis CI.
-      true "${bold}${red}ERROR: Failed to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
-Continue anyway, because CI detected.${reset}"
-      return 0
-   fi
-
    true "${bold}${red}ERROR: Failed to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
 Attempting to gather debug output to diagnose the problem...${reset}"
 
@@ -180,7 +158,16 @@ variable for debugging. This may take a while...${reset}"
 Trying to diagnose the problem using function apt_get_parse_unmet_dependency...${reset}"
 
    apt_get_parse_unmet_dependency
+
    true "INFO: Tried to diagnose the problem using function apt_get_parse_unmet_dependency."
+
+   if [ "$CI" = "true" ]; then
+      ## Debugging Travis CI.
+      true "${bold}${red}ERROR: Failed to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
+Continue anyway, because CI detected.${reset}"
+      return 0
+   fi
+
    error "See above!"
    return 0
 }
