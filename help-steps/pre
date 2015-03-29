@@ -8,8 +8,79 @@ if [ ! "$whonix_build_no_unset_xtrace" ]; then
    set +x
 fi
 #set -x
-
+set -e
 set -o pipefail
+set -o errtrace
+shopt -s extdebug
+
+error() {
+   true "${blue}############################################################${reset}"
+   true "${red}${bold}${under}ERROR${eunder}: ${1}${reset}"
+   true "${blue}############################################################${reset}"
+   error_ "See above! (There should be a bold, red message surrounded by blue hashtags (#).)"
+   true
+}
+
+functiontracefunction() {
+   true "INFO: BEGIN: $FUNCNAME"
+   if [ -o xtrace ]; then
+      set +x
+      local xtrace_reenable="true"
+   fi
+   local frame temp one two
+   frame="0"
+   while caller >/dev/null 2>&1 $frame; do
+      temp="$(caller $frame)" || true
+      read one two _ <<< "$temp"
+      if [ "$function_trace_result" = "" ] ; then
+         function_trace_result="$two (line number: $one)"
+      else
+         function_trace_result="$function_trace_result
+$two (line number: $one)"
+      fi
+      frame="$(( $frame + 1 ))" || true
+   done
+   function_trace_result="$(echo "$function_trace_result" | tac)" || true
+   if [ "$xtrace_reenable" = "true" ]; then
+      set -x
+   fi
+   true "INFO: END  : $FUNCNAME"
+}
+
+## {{{ processbacktracefunction - GPL v2.0 (only)
+
+processbacktracefunction() {
+   ## function    : processbacktracefunction
+   ## Copyright   : Gian Paolo Ghilardi
+   ## LICENSE     : GPL v2.0 (only)
+   ## Source      : http://stackoverflow.com/a/1438241/2605155
+   ## Modification: Patrick Schleizer
+   true "INFO: BEGIN: $FUNCNAME"
+   if [ -o xtrace ]; then
+      set +x
+      local xtrace_reenable="true"
+   fi
+   local TRACE CP CMDLINE PP
+   TRACE=""
+   CP="$$" ## PID of the script itself [1]
+   while true ## safe because "all starts with init..."
+   do
+           CMDLINE="$(cat /proc/$CP/cmdline | tr '\000' ' ')" || true
+           PP="$(grep PPid /proc/$CP/status | awk '{ print $2; }')" || true ## [2]
+           TRACE="$TRACE : $CMDLINE\n"
+           if [ "$CP" = "1" ]; then # we reach 'init' [PID 1] => backtrace end
+                   break
+           fi
+           CP="$PP"
+   done
+   process_backtrace_result="$(echo -en "$TRACE" | tac | grep -n ":")" || true ## using tac to "print in reverse" [3]
+   if [ "$xtrace_reenable" = "true" ]; then
+      set -x
+   fi
+   true "INFO: END  : $FUNCNAME"
+}
+
+## }}} processbacktracefunction - GPL v2.0 (only)
 
 errorhandlershell() {
    true "${cyan}${bold}INFO: Opening interactive shell...${reset}"
@@ -31,8 +102,8 @@ exit code $interactive_chroot_shell_bash_exit_code, cleanup and exit as requeste
 errorhandlerretry() {
    if [ ! "$whonix_build_dispatch_before_retry" = "" ]; then
       true "${cyan}${bold}INFO: dispatch before retry (--retry-before)...: $whonix_build_dispatch_before_retry ${reset}"
-      eval $whonix_build_dispatch_before_retry
-      whonix_build_dispatch_before_retry_exit_code="$?"
+      whonix_build_dispatch_before_retry_exit_code="0"
+      eval $whonix_build_dispatch_before_retry || { whonix_build_dispatch_before_retry_exit_code="$?" ; true; };
       if [ "$whonix_build_dispatch_before_retry_exit_code" = "0" ]; then
          true "${cyan}${bold}INFO: dispatch before retry (--retry-after) exit code was 0, ok. ${reset}"
       else
@@ -43,8 +114,8 @@ errorhandlerretry() {
    fi
 
    true "${cyan}${bold}INFO: Retrying last_failed_bash_command...: $last_failed_bash_command ${reset}"
-   eval $last_failed_bash_command
-   retry_last_failed_bash_command_exit_code="$?"
+   retry_last_failed_bash_command_exit_code="0"
+   eval $last_failed_bash_command || { retry_last_failed_bash_command_exit_code="$?" ; true; };
    if [ "$retry_last_failed_bash_command_exit_code" = "0" ]; then
       true "${cyan}${bold}INFO: Retry succeeded. exit code of last_failed_bash_command: $retry_last_failed_bash_command_exit_code ${reset}"
       unset whonix_build_auto_retry_counter
@@ -56,8 +127,8 @@ errorhandlerretry() {
 
    if [ ! "$whonix_build_dispatch_after_retry" = "" ]; then
       true "${cyan}${bold}INFO: dispatch after retry (--retry-after)...: $whonix_build_dispatch_after_retry ${reset}"
-      eval $whonix_build_dispatch_after_retry
-      whonix_build_dispatch_after_retry_exit_code="$?"
+      whonix_build_dispatch_after_retry_exit_code="0"
+      eval $whonix_build_dispatch_after_retry || { whonix_build_dispatch_after_retry_exit_code="$?" ; true; };
       if [ "$whonix_build_dispatch_after_retry_exit_code" = "0" ]; then
          true "${cyan}${bold}INFO: dispatch after retry (--retry-after) exit code was 0, ok. ${reset}"
       else
@@ -70,49 +141,62 @@ errorhandlerretry() {
    if [ "$retry_last_failed_bash_command_exit_code" = "0" ]; then
       return 0
    else
-      errorhandlerprocessshared "NONE (called by $FUNCNAME)"
+      errorhandlerprocessshared "NONE_(called_by_errorhandlerretry)"
    fi
 }
 
-errorhandlershared() {
-   last_failed_exit_code="$?"
-   last_failed_bash_command="$BASH_COMMAND"
-   ## $1 contains trap signal type.
-   errorhandlerprocessshared "$1"
-}
-
 errorhandlerprocessshared() {
-   last_caller="$(caller)"
-   last_script="$BASH_SOURCE"
+   last_script="$0"
    ## $1 contains trap signal type.
+   trap_signal_type_previous="$trap_signal_type_last"
+   if [ "$trap_signal_type_previous" = "" ]; then
+      trap_signal_type_previous="unset"
+   fi
    trap_signal_type_last="$1"
    whonix_build_error_counter="$(( $whonix_build_error_counter + 1 ))"
    benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
+   processbacktracefunction ## sets process_backtrace_result
+   functiontracefunction ## sets function_trace_result
    true "
-############################################################
-${red}${bold}ERROR in $last_script detected!${reset}
+${cyan}${bold}############################################################${reset}
+${red}${bold}ERROR in ${under}$last_script${eunder} detected!${reset}
 (whonix_build_error_counter: $whonix_build_error_counter)
 (benchmark: $benchmark_took_time)
-${red}${bold}trap_signal_type_last${reset}: $trap_signal_type_last
-${red}${bold}last_failed_bash_command${reset}: $last_failed_bash_command
-${red}${bold}last_failed_exit_code${reset}: $last_failed_exit_code
-${red}${bold}caller: $last_caller${reset}
-${red}${bold}ERROR in $last_script!${reset}
-############################################################
+trap_signal_type_previous: $trap_signal_type_previous
+${red}${bold}trap_signal_type_last${reset}    : $trap_signal_type_last
+${red}${bold}process_backtrace_result${reset}:
+$process_backtrace_result
+${red}${bold}function_trace_result${reset}:
+$function_trace_result
+${red}${bold}last_failed_bash_command${reset}: ${bold}$last_failed_bash_command${reset}
+${red}${bold}last_failed_exit_code${reset}: ${under}$last_failed_exit_code${reset}
+${red}${bold}ERROR in ${under}$last_script${eunder} detected!${reset}
+${cyan}${bold}############################################################${reset}
 "
 
-   if [ "$trap_signal_type_last" = "ERR" ]; then
-      true "INFO: Signal trap ERR, considering auto retry..."
+   if [ "$trap_signal_type_last" = "INT" ] || [ "$trap_signal_type_last" = "TERM" ]; then
+      true "${red}${bold}INFO: signal $trap_signal_type_last received.${reset}"
+      errorhandlerprocessshared "NONE_(called_because_int_or_term)"
+      ## Can return here, because next that will happen is receiving signal ERR.
+      return 0
+   fi
+
+   if [ "$trap_signal_type_last" = "ERR" ] || [ "$trap_signal_type_last" = "NONE_(called_by_errorhandlerretry)" ] ; then
+      true "INFO: trap_signal_type_last: $trap_signal_type_last, considering auto retry..."
       if [ ! "$whonix_build_auto_retry" = "0" ]; then
          if [ "$whonix_build_auto_retry_counter" = "" ]; then
             whonix_build_auto_retry_counter="1"
          fi
          [ -n "$whonix_build_auto_retry" ] || whonix_build_auto_retry="1"
          [ -n "$whonix_build_wait_auto_retry" ] || whonix_build_wait_auto_retry="5"
-         if [ "$whonix_build_auto_retry_counter" -gt "$whonix_build_auto_retry" ]; then
+         local first
+         read -r first _ <<< "$last_failed_bash_command"
+         if [ "$first" = "error_" ]; then
+            true 'INFO: No auto retry because first item of last_failed_bash_command is "error_".'
+         elif [ "$whonix_build_auto_retry_counter" -gt "$whonix_build_auto_retry" ]; then
             true "${cyan}${bold}INFO: Auto retried (--retry-max) already $whonix_build_auto_retry times. No more auto retry. ${reset}"
          else
-            true "${cyan}${bold}INFO: Auto retry attempt number: $whonix_build_auto_retry_counter. Max retry attempts: $whonix_build_auto_retry (--auto-retry). Auto retry... ${reset}"
+            true "${cyan}${bold}INFO: Auto retry attempt number: $whonix_build_auto_retry_counter. Max retry attempts: $whonix_build_auto_retry (--retry-max). Auto retry... ${reset}"
             whonix_build_auto_retry_counter="$(( $whonix_build_auto_retry_counter + 1 ))"
             if [ ! "$whonix_build_wait_auto_retry" = "0" ]; then
                true "${cyan}${bold}INFO: Waiting (--retry-wait) $whonix_build_wait_auto_retry seconds before auto retry... ${reset}"
@@ -124,26 +208,43 @@ ${red}${bold}ERROR in $last_script!${reset}
             errorhandlerretry
             return 0
          fi
+      else
+         true "INFO: whonix_build_auto_retry set to $whonix_build_auto_retry (--retry-max). No auto retry."
       fi
    else
       true "INFO: No auto retry for non ERR signal type: $trap_signal_type_last"
    fi
    unset whonix_build_auto_retry_counter
 
-   true "INFO: whonix_build_non_interactive: $whonix_build_non_interactive | CI: $CI"
-   if [ "$whonix_build_non_interactive" = "true" ] || [ "$CI" = "true" ]; then
-      true "INFO: using non-interactive error handler."
-   else
-      read -p "\
-${red}${bold}ERROR in $BASH_SOURCE detected!
-Please have a look above \"errorhandlergeneral\", note the command that failed, its output and last_failed_exit_code.
+   ## Default.
+   ignore_error="false"
+
+   answer=""
+   if [ "$trap_signal_type_last" = "ERR" ] || [ "$trap_signal_type_last" = "NONE_(called_by_errorhandlerretry)" ] || [ "$trap_signal_type_last" = "NONE_(called_because_int_or_term)" ] ; then
+      true "INFO: whonix_build_non_interactive: $whonix_build_non_interactive | CI: $CI"
+      if [ "$whonix_build_non_interactive" = "true" ] || [ "$CI" = "true" ]; then
+         true "INFO: using non-interactive error handler."
+      else
+         if [ -t "0" ]; then
+            true "INFO: stdin connected to terminal, using interactive error handler."
+            true "\
+${red}${bold}ERROR in $0 detected!
+Please have a look above (the block within ${cyan}${bold}###${reset}${red}${bold}...), note the command that failed, last_failed_exit_code and its output (further above).
 - Please enter c and press enter to ignore the error and continue building. (Recommended against!)
 - Please press r and enter to retry.
 - Please press s and enter to open an chroot interactive shell.
-- Please press enter to cleanup and exit. ${reset}" answer
+- Please press enter to cleanup and exit.${reset}"
+            read -p "Answer? " answer
+         else
+            true "INFO: stdin not connected to terminal, using non-interactive error handler."
+         fi
+      fi
+   else
+      true "INFO: Aborting because of non ERR signal type: $trap_signal_type_last"
+      return 0
    fi
-   ignore_error=""
    error_handler_do_retry=""
+   interactive_chroot_shell=""
    if [ "$answer" = "continue" ] || [ "$answer" = "c" ]; then
       ignore_error="true"
       interactive_chroot_shell="false"
@@ -152,6 +253,7 @@ Please have a look above \"errorhandlergeneral\", note the command that failed, 
       errorhandlershell
    elif [ "$answer" = "r" ] || [ "$answer" = "retry" ]; then
       ignore_error="true"
+      interactive_chroot_shell="false"
       error_handler_do_retry="true"
       errorhandlerretry
    else
@@ -166,8 +268,10 @@ fi
 
 errorhandlermaybeexit() {
    if [ "$error_handler_do_retry" = "true" ]; then
-      true "INFO ($FUNCNAME): auto retry succeeded. Will not exit. Continue."
-      return 0
+      if [ "$last_failed_bash_command" = "0" ]; then
+         true "INFO ($FUNCNAME): auto retry succeeded. Will not exit. Continue."
+         return 0
+      fi
    fi
    if [ "$ignore_error" = "true" ]; then
       abort_or_continue="Continue"
@@ -177,8 +281,6 @@ errorhandlermaybeexit() {
       rm --force "/etc/apt/sources.list.d/whonix_temp.list"
       ## Remove lockfile for whonixcheck.
       rm --force "/var/run/package_manager_lock"
-      rm --force "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-      rm --force "$WHONIX_BUILD_APT_GET_GPGV_LOG"
    fi
    if [ "$ignore_error" = "true" ]; then
       true "INFO: whonix_build_non_interactive: $whonix_build_non_interactive | CI: $CI"
@@ -190,21 +292,30 @@ This is recommended against unless you know what you are doing. Do not report
 bugs, that are a result of this! Please press enter to continue. ${reset}"
       fi
    else
+      if [ "$trap_signal_type_last" = "INT" ] || [ "$trap_signal_type_last" = "TERM" ]; then
+         true "INFO $FUNCNAME: trap_signal_type_last: $trap_signal_type_last"
+         return 0
+      fi
+      true "${red}${bold}INFO: Now exiting from $last_script (because error was detected, see above) with code 1.${reset}"
       exit 1
    fi
 }
 
 errorhandlergeneral() {
-   true "INFO: Begin of function $FUNCNAME."
+   last_failed_exit_code="$?"
+   last_failed_bash_command="$BASH_COMMAND"
+   true "${cyan}INFO: Middle of function $FUNCNAME of $0.${reset}"
    ## $1 contains trap signal type.
-   errorhandlershared "$1"
+   errorhandlerprocessshared "$1"
    errorhandlermaybeexit "$1"
-   true "INFO: End of function $FUNCNAME."
+   true "${cyan}INFO: End of function $FUNCNAME of $0.${reset}"
 }
 
 errorhandlerunchrootunpreventunmount() {
+   last_failed_exit_code="$?"
+   last_failed_bash_command="$BASH_COMMAND"
    ## $1 contains trap signal type.
-   errorhandlershared "$1"
+   errorhandlerprocessshared "$1"
    if [ "$ignore_error" = "false" ]; then
       "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/remove-local-temp-apt-repo
       "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unchroot-raw
@@ -215,8 +326,10 @@ errorhandlerunchrootunpreventunmount() {
 }
 
 errorhandlerunmount() {
+   last_failed_exit_code="$?"
+   last_failed_bash_command="$BASH_COMMAND"
    ## $1 contains trap signal type.
-   errorhandlershared "$1"
+   errorhandlerprocessshared "$1"
    if [ "$ignore_error" = "false" ]; then
       "$WHONIX_SOURCE_HELP_STEPS_FOLDER"/unmount-raw
    fi
@@ -236,16 +349,18 @@ errorhandlersetup() {
 }
 
 errorhandlersetup "errorhandlergeneral" ERR INT TERM
+set +e
 
 export -f errorhandlershell
 export -f errorhandlerretry
-export -f errorhandlershared
 export -f errorhandlerprocessshared
 export -f errorhandlermaybeexit
 export -f errorhandlergeneral
 export -f errorhandlerunchrootunpreventunmount
 export -f errorhandlerunmount
 export -f errorhandlersetup
+export -f functiontracefunction
+export -f processbacktracefunction
 
 errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
@@ -261,25 +376,22 @@ maybe_set_plus_x() {
 ## http://stackoverflow.com/a/12199798
 convertsecs() {
    local h m s
-   ((h="${1}/3600"))
-   ((m="(${1}%3600)/60"))
-   ((s="${1}%60"))
-   printf "%02d:%02d:%02d\n" "$h" "$m" "$s"
-   true
+   ((h="${1}/3600")) || true
+   ((m="(${1}%3600)/60")) || true
+   ((s="${1}%60")) || true
+   printf "%02d:%02d:%02d\n" "$h" "$m" "$s" || true
 }
 
 export -f convertsecs
 
 benchmark_time_start() {
-   export benchmark_time_start="$(date +%s)"
-   true
+   export benchmark_time_start="$(date +%s)" || true
 }
 
 benchmarktimeend() {
-   benchmarktimeend="$(date +%s)"
-   benchmark_took_seconds="$(( $benchmarktimeend - $benchmark_time_start ))"
-   benchmark_took_time="$(convertsecs "$benchmark_took_seconds")"
-   true
+   benchmarktimeend="$(date +%s)" || true
+   benchmark_took_seconds="$(( $benchmarktimeend - $benchmark_time_start ))" || true
+   benchmark_took_time="$(convertsecs "$benchmark_took_seconds")" || true
 }
 
 export -f benchmarktimeend
@@ -287,66 +399,14 @@ export -f benchmarktimeend
 ## start benchmarktimeend
 benchmark_time_start
 
-colors() {
-   errorhandlersetup "errorhandlergeneral" ERR INT TERM
-
-   ## Thanks to:
-   ## http://mywiki.wooledge.org/BashFAQ/037
-   ## Variables for terminal requests.
-   [[ -t 2 ]] && {
-       export alt=$(      tput smcup  || tput ti      ) # Start alt display
-       export ealt=$(     tput rmcup  || tput te      ) # End   alt display
-       export hide=$(     tput civis  || tput vi      ) # Hide cursor
-       export show=$(     tput cnorm  || tput ve      ) # Show cursor
-       export save=$(     tput sc                     ) # Save cursor
-       export load=$(     tput rc                     ) # Load cursor
-       export bold=$(     tput bold   || tput md      ) # Start bold
-       export stout=$(    tput smso   || tput so      ) # Start stand-out
-       export estout=$(   tput rmso   || tput se      ) # End stand-out
-       export under=$(    tput smul   || tput us      ) # Start underline
-       export eunder=$(   tput rmul   || tput ue      ) # End   underline
-       export reset=$(    tput sgr0   || tput me      ) # Reset cursor
-       export blink=$(    tput blink  || tput mb      ) # Start blinking
-       export italic=$(   tput sitm   || tput ZH      ) # Start italic
-       export eitalic=$(  tput ritm   || tput ZR      ) # End   italic
-   [[ $TERM != *-m ]] && {
-       export red=$(      tput setaf 1|| tput AF 1    )
-       export green=$(    tput setaf 2|| tput AF 2    )
-       export yellow=$(   tput setaf 3|| tput AF 3    )
-       export blue=$(     tput setaf 4|| tput AF 4    )
-       export magenta=$(  tput setaf 5|| tput AF 5    )
-       export cyan=$(     tput setaf 6|| tput AF 6    )
-   }
-       export white=$(    tput setaf 7|| tput AF 7    )
-       export default=$(  tput op                     )
-       export eed=$(      tput ed     || tput cd      )   # Erase to end of display
-       export eel=$(      tput el     || tput ce      )   # Erase to end of line
-       export ebl=$(      tput el1    || tput cb      )   # Erase to beginning of line
-       export ewl=$eel$ebl                                # Erase whole line
-       export draw=$(     tput -S <<< '   enacs
-                                   smacs
-                                   acsc
-                                   rmacs' || { \
-                   tput eA; tput as;
-                   tput ac; tput ae;         } )   # Drawing characters
-       export back=$'\b'
-   } 2>/dev/null ||:
-
-   export whonix_build_already_defined_colors="true"
-}
-
-if [ ! "$whonix_build_already_defined_colors" = "true" ]; then
-   colors
-fi
-
-if [ ! "$ROOT_CHECK" = "0" ]; then
+root_check() {
    if [ "$(id -u)" != "0" ]; then
        echo "${red}${bold}ERROR: This must be run as root (sudo)!${reset}"
        exit 1
    else
        true "INFO: Script running as root."
    fi
-fi
+}
 
 lower_priorities() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
@@ -393,118 +453,13 @@ aptcachemaybeenable() {
 
 export -f aptcachemaybeenable
 
-apt_cache_disable() {
+aptcachedisable() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    unset http_proxy
 }
 
-export -f apt_cache_disable
-
-## {{ apt_get_gpgv
-
-aptgetgpgvcreatetmp() {
-   errorhandlersetup "errorhandlergeneral" ERR INT TERM
-
-   ## workaround for
-   ##     apt: Provide meaningful exit codes for gpg failures
-   ##     https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=745735
-   ## W: A error occurred during the signature verification.
-   ## To catch situations such as:
-   ##     The repository is not updated and the previous index files will be used.
-   ##     GPG error: http://deb.torproject.org stable Release: The following signatures were invalid: KEYEXPIRED 1409325681 KEYEXPIRED 1409325681 KEYEXPIRED 1409325681 KEYEXPIRED 1409325681
-   ## That apt-repository would otherwise be silently ignored without error notification.
-
-   apt_get_gpgv_opts+=" -o Dir::Bin::gpg=$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN "
-   export apt_get_gpgv_opts
-
-   rm --force "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-   touch "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-
-   ## apt-get calls gpgv (this gpgv wrapper) with --status-fd 3. We redirect
-   ## a copy of file descriptor 3 to the log.
-   ## Variable WHONIX_BUILD_APT_GET_GPGV_LOG gets set and exported in help-steps/variables.
-   echo '#!/bin/bash
-gpgv ${1+"$@"} 3> >(tee --append "$WHONIX_BUILD_APT_GET_GPGV_LOG" >&3)' > "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-
-   chmod +x "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-}
-
-export -f aptgetgpgvcreatetmp
-
-aptgetgpgvparsetmp() {
-   errorhandlersetup "errorhandlergeneral" ERR INT TERM
-
-   local gpg_log
-   gpg_log="$(cat "$WHONIX_BUILD_APT_GET_GPGV_LOG")"
-   if [ "$gpg_log" = "" ]; then
-      true "ERROR: variable gpg_log is empty!"
-      error "See above!"
-   fi
-
-   local current_unixtime
-   current_unixtime="$(date +%s)"
-   local current_time
-   current_time="$(date)"
-
-   OIFS="$IFS"
-   IFS="
-"
-
-   for line in $gpg_log; do
-      IFS="$OIFS"
-      true "line: $line"
-      local one two three four five
-      read -r one two three four five _ <<< "$line"
-      true "one: $one | two: $two | three: $three | four: $four | five: $five"
-      if [ "$two" = "KEYEXPIRED" ]; then
-         local keyexpired_unixtime
-         keyexpired_unixtime="$three"
-         if [ "$current_unixtime" -ge "$keyexpired_unixtime" ]; then
-            local difference_in_seconds difference_in_minutes difference_in_hours difference_in_days difference_in_years month_has_seconds half_month_has_seconds maximum_age_in_seconds
-            difference_in_seconds="$(( $current_unixtime - $keyexpired_unixtime ))"
-            difference_in_minutes="$(( $difference_in_seconds / 60 ))"
-            difference_in_hours="$(( $difference_in_minutes / 60 ))"
-            difference_in_days="$(( $difference_in_hours / 24 ))"
-            difference_in_years="$(( $difference_in_days / 365 ))"
-            month_has_seconds="2592000"
-            half_month_has_seconds="$(( $month_has_seconds / 2 ))"
-            maximum_age_in_seconds="$half_month_has_seconds"
-            if [ "$difference_in_seconds" -ge "$maximum_age_in_seconds" ]; then
-               true "${bold}${red}ERROR: apt-get gpgv KEYEXPIRED!
-current_unixtime: $current_unixtime
-keyexpired_unixtime: $keyexpired_unixtime
-current_time: $current_time
-difference_in_seconds: $difference_in_seconds
-difference_in_minutes: $difference_in_minutes
-difference_in_hours: $difference_in_hours
-difference_in_days: $difference_in_days
-difference_in_years: $difference_in_years
-See above!${reset}"
-               error "See above!"
-            fi
-         fi
-      fi
-   done
-
-   ## Fallback, in case $gpg_log was empty and that error was skipped.
-   IFS="$OIFS"
-}
-
-export -f aptgetgpgvparsetmp
-
-aptgetgpgvdeletetmp() {
-   errorhandlersetup "errorhandlergeneral" ERR INT TERM
-   rm --force "$WHONIX_BUILD_APT_GET_GPGV_TEMP_BIN"
-   rm --force "$WHONIX_BUILD_APT_GET_GPGV_LOG"
-}
-
-export -f aptgetgpgvdeletetmp
-
-## Prevent the log from needlessly filling up.
-rm --force "$WHONIX_BUILD_APT_GET_GPGV_LOG"
-
-## }} apt_get_gpgv
+export -f aptcachedisable
 
 #echo "${bold}Currently running script: $BASH_SOURCE${reset}"
 

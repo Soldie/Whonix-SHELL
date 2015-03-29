@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE${1+"$@"}"
 
@@ -15,7 +16,10 @@ cd ..
 cd help-steps
 
 source pre
+source colors
 source variables
+
+root_check
 
 export-vbox-vm() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
@@ -95,15 +99,15 @@ Whonix is experimental software. Do not rely on it for strong anonymity.
 "
    else
       local MSG="${bold}${red}$BASH_SOURCE ERROR: VMNAME is neither Whonix-Gateway nor Whonix-Workstation. Please report this bug! ${reset}"
-      echo "$MSG"
-      bug "$MSG"
+      error "$MSG"
    fi
 
    ## Not yet using: --producturl
 
    ## --vsys needs to precede --eula.
    sudo -u "$user_name" \
-      VBoxManage export "$VMNAME" \
+      VBoxManage \
+         export "$VMNAME" \
          --vsys "0" \
          --eula "$TEXT" \
          --manifest \
@@ -114,6 +118,17 @@ Whonix is experimental software. Do not rely on it for strong anonymity.
          --output "$binary_image_ova"
 
    sync
+
+   ## Sanity test.
+   ## A different --vmname is required, because $VMNAME does already exist
+   ## in the list of imported VirtualBox machines.
+   sudo -u "$user_name" \
+      VBoxManage \
+         import "$binary_image_ova" \
+         --vsys "0" \
+         --eula accept \
+         --vmname "$VMNAME-$anon_dist_build_version" \
+         --dry-run
 }
 
 if [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then

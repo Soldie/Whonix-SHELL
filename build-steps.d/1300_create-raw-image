@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE${1+"$@"}"
 
@@ -15,7 +16,10 @@ cd ..
 cd help-steps
 
 source pre
+source colors
 source variables
+
+root_check
 
 create-debian-raw-image() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
@@ -126,7 +130,7 @@ create-debian-raw-image() {
          --mirror "$whonix_build_apt_sources_mirror"
 
    ## Implemented in help-steps/pre.
-   apt_cache_disable
+   aptcachedisable
 
    chown --recursive "$user_name:$user_name" "$WHONIX_BINARY/"
 }
@@ -148,7 +152,7 @@ else
    elif [ "$WHONIX_BUILD_CUSTOM_WORKSTATION" = "1" ]; then
       create-empty-raw-image
    else
-      bug "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
+      error "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
    fi
    benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
    true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} | $whonix_build_error_counter error(s) detected. (benchmark: $benchmark_took_time)${reset}"

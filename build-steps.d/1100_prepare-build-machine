@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE${1+"$@"}"
 
@@ -22,12 +23,18 @@ whonix_build_no_unset_xtrace="true"
 true "INFO $0: BEGIN sourcing pre..."
 source pre
 true "INFO $0: END sourcing pre."
+true "INFO $0: BEGIN sourcing colors..."
+source colors
+true "INFO $0: END sourcing colors."
 true "INFO $0: BEGIN sourcing variables..."
 source variables
 true "INFO $0: END sourcing variables."
+
 unset whonix_build_no_unset_xtrace
 
 unset whonix_build_on_operating_system_detect_skip
+
+root_check
 
 check-virtualbox-vm-exists() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
@@ -161,19 +168,6 @@ prepare-build-machine() {
       check-virtualbox-vm-exists
    fi
 
-   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
-      true "${cyan}$BASH_SOURCE INFO: Using ${under}auto local signing key method${eunder}... ${reset}"
-   else
-      true "${cyan}$BASH_SOURCE INFO: Using ${under}custom signing key method${eunder}... ${reset}"
-      if [ "$GPG_AGENT_INFO" = "" ]; then
-         true "${cyan}${bold}INFO: Variable GPG_AGENT_INFO is not set. gnupg-agent will not be available. Did you forget adding -E to sudo?${reset}"
-      fi
-      ## Eventually letting builder cache its gpg passwords early, so we do not
-      ## pause the build process later when reprepro creates the local apt
-      ## repository.
-      "$WHONIX_SOURCE_HELP_STEPS_FOLDER/gpg_test_sign"
-   fi
-
    ## If whonix_build is run with --fast1 switch.
    if [ "$WHONIX_BUILD_FAST1" = "1" ]; then
       true "${bold}${cyan}INFO: run with --fast1 switch, skipping $BASH_SOURCE. ${reset}"
@@ -206,7 +200,7 @@ Please delete Whonix's source code folder and get it again as user, not root!${r
    local id_exit_code
    id_exit_code="0"
    id "$user_name" || { id_exit_code="$?" ; true; };
-   if [ ! "$id_exit_code" = 0 ]; then
+   if [ "$id_exit_code" = "1" ]; then
       true 'INFO: Creating user "$user_name" with password "changeme", because some things have to be run as "$user_name".'
       ## setting password of user "user" to changeme
       ##
@@ -216,8 +210,11 @@ Please delete Whonix's source code folder and get it again as user, not root!${r
       ## changeme
       ## Resulted in: aTayYxVyw5kDo
       useradd --password aTayYxVyw5kDo --user-group --create-home --shell /bin/bash "$user_name"
-   else
+   elif [ "$id_exit_code" = "0" ]; then
       true "${cyan}INFO: Not creating user \"$user_name\" with password \"changeme\", because it already exists.${reset}"
+   else
+      true "${red}${bold}ERROR: id_exit_code was neither 1 or 0, it was: ${id_exit_code}${reset}"
+      error "See above!"
    fi
 
    ## Add user to sudo group.
@@ -228,6 +225,19 @@ Please delete Whonix's source code folder and get it again as user, not root!${r
    time sudo -u "$user_name" echo "This is a test echo."
 
    ## }}
+
+   true "INFO: Updating git sub modules..."
+
+   sudo -u "$user_name" git submodule sync
+   sudo -u "$user_name" git submodule update --init --recursive
+
+   true "INFO: Updated git sub modules."
+
+   if [ "$CI" = "true" ]; then
+      if [ "$TRAVIS" = "true" ]; then
+         apt-key adv --keyserver "keyserver.ubuntu.com" --recv-keys "790BC7277767219C42C86F933B4FE6ACC0B21F32"
+      fi
+   fi
 
    if [ ! "$WHONIX_BUILD_UNATTENDED_PKG_INSTALL" = "1" ]; then
       ## Always keep old configuration file. Do not prompt to install new config files.
@@ -258,10 +268,7 @@ Please delete Whonix's source code folder and get it again as user, not root!${r
 
    if [ ! "$dpkg_exit_code" = "0" ]; then
       ## Update package lists and install apt-cacher-ng.
-      aptgetgpgvcreatetmp
-      apt-get $apt_timeout_opts $apt_get_gpgv_opts update
-      aptgetgpgvparsetmp
-      aptgetgpgvdeletetmp
+      $apt_get_update_wrapper_source_path_full $apt_timeout_opts $apt_get_gpgv_opts update
 
       ## --no-install-recommends to prevent installing avahi-daemon.
       apt-get $apt_unattended_opts $apt_timeout_opts --no-install-recommends --yes install apt-cacher-ng
@@ -280,10 +287,7 @@ Please delete Whonix's source code folder and get it again as user, not root!${r
    aptcachemaybeenable
 
    ## Update package lists after enabling apt-cacher-ng.
-   aptgetgpgvcreatetmp
-   apt-get $apt_timeout_opts $apt_get_gpgv_opts update
-   aptgetgpgvparsetmp
-   aptgetgpgvdeletetmp
+   $apt_get_update_wrapper_source_path_full $apt_timeout_opts $apt_get_gpgv_opts update
 
    if [ ! "$WHONIX_BUILD_UPGRADE_BUILD_MACHINE" = "0" ]; then
       ## Update package lists and upgrade.
@@ -462,6 +466,15 @@ a linux kernel.)"
       true "INFO: config-package-dev with debhelper support already installed, ok."
    fi
 
+   ## Check if dh-systemd is installed.
+   ## (Build Dependency for qubes-whonix package.)
+   if dpkg-query --show dh-systemd >/dev/null 2>&1 ; then
+      true "INFO: dh-systemd already installed, ok."
+   else
+      local install_from_testing_required="1"
+      true "INFO: dh-systemd install required, ok."
+   fi
+
    if [ "$install_from_testing_required" = "1" ]; then
       local TEMP="/etc/apt/sources.list.d/whonix_temp.list"
 
@@ -474,16 +487,13 @@ a linux kernel.)"
       fi
 
       ## Update package lists to include temporary repository.
-      aptgetgpgvcreatetmp
-      apt-get \
+      $apt_get_update_wrapper_source_path_full \
          $apt_timeout_opts \
          -o Dir::Etc::sourcelist="$TEMP" \
          -o Dir::Etc::sourceparts="-" \
          -o APT::Get::List-Cleanup="0" \
          $apt_get_gpgv_opts \
          update
-      aptgetgpgvparsetmp
-      aptgetgpgvdeletetmp
 
       apt-get \
          --yes \
@@ -492,7 +502,8 @@ a linux kernel.)"
          -o APT::Default-Release="$whonix_build_apt_stable_release" \
          install \
          "config-package-dev/$whonix_build_apt_newer_release_codename" \
-         "grml-debootstrap/$whonix_build_apt_newer_release_codename"
+         "grml-debootstrap/$whonix_build_apt_newer_release_codename" \
+         "dh-systemd/$whonix_build_apt_newer_release_codename"
 
          #"sleuthkit/$whonix_build_apt_newer_release_codename"
 
@@ -545,14 +556,7 @@ a linux kernel.)"
    #sudo apt-get autoclean
 
    ## Implemented in help-steps/pre.
-   apt_cache_disable
-
-   true "INFO: Updating git sub modules..."
-
-   sudo -u "$user_name" git submodule sync
-   sudo -u "$user_name" git submodule update --init --recursive
-
-   true "INFO: Updated git sub modules."
+   aptcachedisable
 
    ## Debugging.
    cat /usr/sbin/policy-rc.d || true

@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 error_handler_chroot-raw() {
    : echo "
@@ -16,8 +17,11 @@ ${red}${bold}ERROR $BASH_SOURCE: | caller: $(caller)${reset}
 
 MYDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-source "$MYDIR"/pre
-source "$MYDIR"/variables
+source "$MYDIR/pre"
+source "$MYDIR/colors"
+source "$MYDIR/variables"
+
+root_check
 
 chroot-raw() {
    trap "error_handler_chroot-raw" ERR INT TERM
@@ -34,19 +38,19 @@ chroot-raw() {
 
       ## We need /dev for create_swap_file
       ##  "dd if=/dev/zero of=/swapfile1 bs=1024 count=524288"
-      mount --bind /dev "$CHROOT_FOLDER"/dev
+      mount --bind "/dev" "$CHROOT_FOLDER/dev"
 
       ##########
       ## /proc #
       ##########
 
-      mount --bind /proc "$CHROOT_FOLDER"/proc
+      mount --bind "/proc" "$CHROOT_FOLDER/proc"
 
       #########
       ## /sys #
       #########
 
-      #mount --bind /sys "$CHROOT_FOLDER"/sys
+      #mount --bind "/sys" "$CHROOT_FOLDER/sys"
    fi
 
    ################
@@ -76,23 +80,27 @@ chroot-raw() {
    ## Does not work on Debian Wheezy.
    ## Not required anymore. We are not starting any services, DHCP or
    ## networking inside the chroot, so the file should remain untouched.
-   #mount -o remount,ro,noload "$CHROOT_FOLDER"/etc/resolv.conf
+   #mount -o remount,ro,noload "$CHROOT_FOLDER/etc/resolv.conf"
 
    if [ "$WHONIX_CHROOT_MOUNT_RESOLV_CONF" = "0" ]; then
       true "${cyan}INFO $BASH_SOURCE: Not mounting /etc/resolv.conf inside chroot, because WHONIX_CHROOT_MOUNT_RESOLV_CONF is 0.${reset}"
    else
       if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
-         true "${cyan}INFO $BASH_SOURCE: ANON_BUILD_INSTALL_TO_ROOT is $ANON_BUILD_INSTALL_TO_ROOT, using .backup files as /etc/resolv.conf etc, ok.${reset}"
-         mount --bind /etc/resolv.conf.backup "$CHROOT_FOLDER"/etc/resolv.conf
-         mount --bind /etc/hosts.backup "$CHROOT_FOLDER"/etc/hosts
-         mount --bind /etc/hostname.backup "$CHROOT_FOLDER"/etc/hostname
-         mount --bind /etc/network/interfaces.backup "$CHROOT_FOLDER"/etc/network/interfaces
+         true "${cyan}INFO $BASH_SOURCE: ANON_BUILD_INSTALL_TO_ROOT is $ANON_BUILD_INSTALL_TO_ROOT, using $WHONIX_BINARY/system-files-backup files as /etc/resolv.conf etc, ok.${reset}"
+
+         ## Debugging.
+         test -f "$WHONIX_BINARY/system-files-backup/resolv.conf"
+
+         mount --bind "$WHONIX_BINARY/system-files-backup/resolv.conf" "$CHROOT_FOLDER/etc/resolv.conf"
+         mount --bind "$WHONIX_BINARY/system-files-backup/hosts" "$CHROOT_FOLDER/etc/hosts"
+         mount --bind "$WHONIX_BINARY/system-files-backup/hostname" "$CHROOT_FOLDER/etc/hostname"
+         mount --bind "$WHONIX_BINARY/system-files-backup/interfaces" "$CHROOT_FOLDER/etc/network/interfaces"
       else
-         true "${cyan}INFO $BASH_SOURCE: ANON_BUILD_INSTALL_TO_ROOT is $ANON_BUILD_INSTALL_TO_ROOT, NOT using .backup files as /etc/resolv.conf etc, ok.${reset}"
-         mount --bind /etc/resolv.conf "$CHROOT_FOLDER"/etc/resolv.conf
-         mount --bind /etc/hosts "$CHROOT_FOLDER"/etc/hosts
-         mount --bind /etc/hostname "$CHROOT_FOLDER"/etc/hostname
-         mount --bind /etc/network/interfaces "$CHROOT_FOLDER"/etc/network/interfaces
+         true "${cyan}INFO $BASH_SOURCE: ANON_BUILD_INSTALL_TO_ROOT is $ANON_BUILD_INSTALL_TO_ROOT, NOT using $WHONIX_BINARY/system-files-backup files as /etc/resolv.conf etc, ok.${reset}"
+         mount --bind "/etc/resolv.conf" "$CHROOT_FOLDER/etc/resolv.conf"
+         mount --bind "/etc/hosts" "$CHROOT_FOLDER/etc/hosts"
+         mount --bind "/etc/hostname" "$CHROOT_FOLDER/etc/hostname"
+         mount --bind "/etc/network/interfaces" "$CHROOT_FOLDER/etc/network/interfaces"
       fi
    fi
 

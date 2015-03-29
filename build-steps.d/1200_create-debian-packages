@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE${1+"$@"}"
 
@@ -18,7 +19,10 @@ whonix_build_one_parsed="1"
 VMNAME="internalrun"
 
 source pre
+source colors
 source variables
+
+root_check
 
 cd "$MYDIR"
 cd ..
@@ -26,93 +30,8 @@ cd ..
 signing_key() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
-   ## We need to create a local signing key for signing our local APT repository. Otherwise,
-   ## apt-get would complain, that the package can not be verified. In theory, signing is not
-   ## required, because the local APT repository never touches any networks. However, ignoring
-   ## this warning while installing the meta package, which pull the other packages, could
-   ## make apt-get ignore if those packages can not be verified either. Shipping an already
-   ## created gpg snake oil (because known to the public) secret key is no option either,
-   ## because anyone could get this key, which also needs to be added to apt-key. In that case,
-   ## anyone could sign packages with this snake oil key. Therefore we play it safe and
-   ## create a local signing key on the build machine.
-
-   ## We only automatically create am auto local signing key, in case the builder did not
-   ## provide a custom folder for WHONIX_LOCAL_SIGNING_KEY_FOLDER. This is determined in
-   ## help-steps/variables.
-   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
-      true "${cyan}$BASH_SOURCE INFO: Using ${under}auto local signing key method${eunder}... ${reset}"
-
-      ## Check, if we previously already created a local OpenPGP signing key.
-      if [ ! -f "$WHONIX_LOCAL_SIGNING_KEY_FOLDER/done" ]; then
-         true "${cyan}$BASH_SOURCE INFO: We do not yet have a local OpenPGP signing key for our local APT repository. Creating one... ${reset}"
-
-         sudo -E -u "$user_name" mkdir --parents "$WHONIX_LOCAL_SIGNING_KEY_FOLDER"
-
-         ## chmod 700, so gpg will not complain about folder permissions
-         sudo -E -u "$user_name" chmod 700 "$WHONIX_LOCAL_SIGNING_KEY_FOLDER"
-
-         ## http://www.gnupg.org/documentation/manuals/gnupg-devel/Unattended-GPG-key-generation.html
-
-         ## https://github.com/ioerror/torbirdy/blob/master/gpg.conf
-
-         echo "
-            Key-Type: RSA
-            Key-Length: 4096
-            Subkey-Type: RSA
-            Subkey-Length: 4096
-            Name-Real: Whonix auto generated local APT signing key
-            Name-Email: whonix@local-signing.key
-            Expire-Date: 0
-            Preferences: SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed
-         " | sudo -E -u "$user_name" gpg \
-                                       --no-options \
-                                       --no-emit-version \
-                                       --no-comments \
-                                       --display-charset utf-8 \
-                                       --keyserver hkp://qdigse2yzvuglcix.onion \
-                                       --personal-digest-preferences SHA512 \
-                                       --cert-digest-algo SHA512 \
-                                       --default-preference-list "SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed" \
-                                       --keyserver-options no-honor-keyserver-url \
-                                       --fixed-list-mode \
-                                       --keyid-format 0xlong \
-                                       --use-agent \
-                                       --list-options show-uid-validity \
-                                       --sig-notation issuer-fpr@notations.openpgp.fifthhorseman.net=%g \
-                                       --no-default-keyring \
-                                       --homedir "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" \
-                                       --batch \
-                                       --gen-key
-
-         sudo -E -u "$user_name" touch "$WHONIX_LOCAL_SIGNING_KEY_FOLDER/done"
-
-         true "${cyan}$BASH_SOURCE INFO: Created local OpenPGP signing key for our local APT repository. ${reset}"
-      else
-         true "${cyan}$BASH_SOURCE INFO: We already have a local OpenPGP signing key for our local APT repository. ${reset}"
-      fi
-   else
-      true "${cyan}$BASH_SOURCE INFO: Using ${under}custom signing key method${eunder}... ${reset}"
-   fi
-
-   if [ ! -d "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" ]; then
-      msg="ERROR: WHONIX_LOCAL_SIGNING_KEY_FOLDER $WHONIX_LOCAL_SIGNING_KEY_FOLDER does not exist."
-      error "WHONIX_LOCAL_SIGNING_KEY_FOLDER $WHONIX_LOCAL_SIGNING_KEY_FOLDER does not exist."
-   else
-      true "INFO: WHONIX_LOCAL_SIGNING_KEY_FOLDER: $WHONIX_LOCAL_SIGNING_KEY_FOLDER exists, ok."
-   fi
-
-   ## Just output list of secret keys in that very folder in case that ever breaks and someone ever sends
-   ## a build log, this will help with debugging.
-   sudo -E -u "$user_name" gpg \
-                             --no-options \
-                             --no-default-keyring \
-                             --homedir "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" \
-                             --keyid-format "0xlong" \
-                             --fingerprint \
-                             --list-secret-keys
-
    true "INFO: GPG_AGENT_INFO: $GPG_AGENT_INFO"
-   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
+   if [ "$WHONIX_BUILD_SIGN_LOCAL_REPOSITORY" = "false" ]; then
       true
    else
       if [ "$GPG_AGENT_INFO" = "" ]; then
@@ -121,11 +40,49 @@ signing_key() {
       ## Eventually letting builder cache its gpg passwords early, so we do not
       ## pause the build process later when reprepro creates the local apt
       ## repository.
-      "$WHONIX_SOURCE_HELP_STEPS_FOLDER/gpg_test_sign"
+      sudo -E -u "$user_name" \
+         "$WHONIX_SOURCE_HELP_STEPS_FOLDER/gpg_test_sign"
    fi
 }
 
-check_for_uncommited_changes() {
+check_for_untagged_commits() {
+   errorhandlersetup "errorhandlergeneral" ERR INT TERM
+
+   git_tag_nearest="$(git describe --always --abbrev=0)"
+   git_tag_current="$(git describe --always --abbrev=1000000000)"
+
+   ## Example git_tag_nearest:
+   ## 9.6
+
+   ## Example git_tag_current:
+   ## 10.0.0.3.7-developers-only-6-g505c39d44d2a08451f7ff53ce67d78745e05816b
+
+   true "${cyan}$BASH_SOURCE INFO: git_tag_nearest: $git_tag_nearest ${reset}"
+   true "${cyan}$BASH_SOURCE INFO: git_tag_current: $git_tag_current ${reset}"
+
+   if [ "$git_tag_nearest" == "$git_tag_current" ]; then
+      true "${cyan}$BASH_SOURCE INFO: Git reports tagged commit. ${reset}"
+   else
+      if [ "$whonix_build_ignore_untagged" = "true" ]; then
+         true "${bold}${cyan}$BASH_SOURCE INFO: Git reports a untagged commit! But you requested to ignore untagged commits, continuing... ${reset}"
+      else
+         true "${bold}${red}---------------------------------------------------------------------${reset}"
+         true "${bold}${red}$BASH_SOURCE ERROR: Git reports a untagged commit! ${reset}"
+         true "${cyan}$BASH_SOURCE INFO: (And you are not using ${under}--allow-untagged true${eunder}, \
+which you also should not do for security reasons, unless you are a developer or advanced user and know what you are doing. \
+Such as in case you added custom commits.) ${reset}"
+         true "${cyan}$BASH_SOURCE INFO: (As a developer or advanced user you might want to use:
+${under}--allow-untagged true${eunder} ${under}--allow-uncommitted true${eunder}). ${reset}"
+         true "${cyan}$BASH_SOURCE INFO: (See build documentation on how to verify and checkout git tags.)${reset}"
+         true "${bold}${red}---------------------------------------------------------------------${reset}"
+
+         error "Untagged commit! See above!"
+         true
+      fi
+   fi
+}
+
+check_for_uncommitted_changes() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    if [ -n "$(git status --porcelain)" ]; then
@@ -137,17 +94,24 @@ check_for_uncommited_changes() {
          git clean -d --force --force --dry-run
          true
       else
+         true "${bold}${red}---------------------------------------------------------------------${reset}"
          true "${bold}${red}$BASH_SOURCE ERROR: Git reports uncommitted changes! ${reset}"
-         true "${cyan}$BASH_SOURCE INFO: (And you are not using --ignore-uncommitted, which you also should not do for security reasons, unless you know git and what you are doing.) ${reset}"
+         true "${cyan}$BASH_SOURCE INFO: (And you are not using ${under}--allow-uncommitted true${eunder}, \
+which you also should not do for security reasons, unless you are a developer or advanced user and know what you are doing. \
+Such as in case you added custom code.) ${reset}"
+         true "${cyan}$BASH_SOURCE INFO: (As a developer or advanced user you might want to use:
+${under}--allow-untagged true${eunder} ${under}--allow-uncommitted true${eunder}). ${reset}"
          true "${cyan}$BASH_SOURCE INFO: Running \"git status\" for your convenience. ${reset}"
          git status
          true "${cyan}$BASH_SOURCE INFO: Running git \"clean -d --force --force --dry-run\" for your convenience. ${reset}"
          git clean -d --force --force --dry-run
          true "${cyan}$BASH_SOURCE You most likely like to run:${reset}
-    $WHONIX_SOURCE_HELP_STEPS_FOLDER/cleanup-files
+    ${under}$WHONIX_SOURCE_HELP_STEPS_FOLDER/cleanup-files${eunder}
 ${cyan}or if you know what you are doing:${reset}
-    git clean -d --force --force
-    git reset --hard"
+    ${under}git clean -d --force --force${eunder}
+    ${under}git reset --hard${eunder}
+"
+         true "${bold}${red}---------------------------------------------------------------------${reset}"
 
          error "Uncommitted changes! See above!"
          true
@@ -185,12 +149,14 @@ get_extra_packages() {
    ## Update $whonix_build_sources_list_newer package list while keeping
    ## previously updated regular package lists. In other words, prevent
    ## needlessly updating regular package lists.
-   apt-get update \
+   $apt_get_update_wrapper_source_path_full \
       $apt_timeout_opts \
       $apt_verify_opts \
+      $apt_get_gpgv_opts \
       -o Dir::Etc::sourcelist="$whonix_build_sources_list_newer" \
       -o Dir::Etc::sourceparts="-" \
-      -o APT::Get::List-Cleanup="0"
+      -o APT::Get::List-Cleanup="0" \
+      update
 
    ## Download python-stem from $whonix_build_sources_list_newer.
    sudo -E -u "$user_name" \
@@ -213,7 +179,7 @@ get_extra_packages() {
       --list-cleanup
 
    ## Implemented in help-steps/pre.
-   apt_cache_disable
+   aptcachedisable
 
    true "${cyan}$BASH_SOURCE INFO: Got extra packages. ${reset}"
 }
@@ -222,14 +188,6 @@ create_whonix_debian_packages_without_building_system() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    true "${cyan}$BASH_SOURCE INFO: Creating Whonix Debian Packages... ${reset}"
-
-   ## --rootcmd as per https://wiki.debian.org/ReproducibleBuilds#How_to_build_a_deb_using_faketime
-   ##
-   ## -p (**-p**sign-command) is understood by dpkg-buildpackage.
-   ## See also man dpkg-buildpackage.
-   ##
-   ## -sa is understood by dpkg-buildpackage, it forces the inclusion of the original source
-   ## See also http://www.debian.org/doc/manuals/maint-guide/upload.en.html.
 
    shopt -s nullglob
    shopt -s dotglob
@@ -254,15 +212,27 @@ create_whonix_debian_packages_without_building_system() {
             continue
          fi
       fi
+      ## The make_use_lintian is supported by the generic Makefile.
+      if [ "$base_name" = "qubes-whonix" ]; then
+         ## Workaround for qubes-whonix package.
+         ## Skip lintian fail until these are fixed.
+         ## https://phabricator.whonix.org/T186
+         make_use_lintian="false"
+      else
+         make_use_lintian="true"
+      fi
+      export make_use_lintian
+      local make_file="Makefile"
+      test -f "$make_file"
       if [ "$CI" = "true" ]; then
          ## Hiding,
          ## "ERROR: ld.so: object '/usr/$LIB/faketime/libfaketime.so.1' from LD_PRELOAD cannot be preloaded: ignored."
          ## on CI systems because otherwise, "Maximum output exceeded".
          sudo -E -u "$user_name" \
-            make deb-pkg >/dev/null 2>&1
+            make -f "$make_file" deb-pkg >/dev/null 2>&1
       else
          sudo -E -u "$user_name" \
-            make deb-pkg
+            make -f "$make_file" deb-pkg
       fi
    done
 
@@ -383,6 +353,7 @@ create_whonix_repository() {
          reprepro \
             -V \
             -V \
+            $WHONIX_BUILD_REPREPRO_SIGNING_OPTIONS \
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             removematched "$WHONIX_BUILD_APT_CODENAME" "*"
       true "${cyan}$BASH_SOURCE INFO: Done, purged ${under}${WHONIX_BUILD_APT_CODENAME}${eunder} APT repository. ${reset}"
@@ -396,35 +367,12 @@ create_whonix_repository() {
    shopt -s nullglob
    local file_name
 
-   #true "${cyan}$BASH_SOURCE INFO: Importing .dsc file... ${reset}"
-   #for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".dsc"; do
-      #sudo -E -u "$user_name" \
-         #reprepro \
-            #-V \
-            #-V \
-            #$WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
-            #includedsc "$WHONIX_BUILD_APT_CODENAME" "$file_name"
-   #done
-   #true "${cyan}$BASH_SOURCE INFO: Done, imported .dsc file. ${reset}"
-
-   #true "${cyan}$BASH_SOURCE INFO: Importing .changes file... ${reset}"
-   #for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".changes"; do
-      #sudo -E -u "$user_name" \
-         #reprepro \
-            #-V \
-            #-V \
-            #$WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
-            #--ignore=wrongdistribution \
-            #include "$WHONIX_BUILD_APT_CODENAME" "$file_name"
-   #done
-   #true "${cyan}$BASH_SOURCE INFO: Done, imported .changes file. ${reset}"
-
    true "${cyan}$BASH_SOURCE INFO: Importing .deb files... ${reset}"
    for file_name in "$WHONIX_SOURCE_FOLDER/packages/"*".deb"; do
       sudo -E -u "$user_name" \
          reprepro \
-            --gnupghome "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" \
             --basedir "$WHONIX_APT_REPOSITORY_FOLDER" \
+            $WHONIX_BUILD_REPREPRO_SIGNING_OPTIONS \
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             includedeb "$WHONIX_BUILD_APT_CODENAME" "$file_name"
    done
@@ -434,20 +382,12 @@ create_whonix_repository() {
    for file_name in "$WHONIX_BINARY/temp_extra_packages/"*".deb"; do
       sudo -E -u "$user_name" \
          reprepro \
-            --gnupghome "$WHONIX_LOCAL_SIGNING_KEY_FOLDER" \
             --basedir "$WHONIX_APT_REPOSITORY_FOLDER" \
+            $WHONIX_BUILD_REPREPRO_SIGNING_OPTIONS \
             $WHONIX_BUILD_REPREPRO_FOLDER_OPTIONS \
             includedeb "$WHONIX_BUILD_APT_CODENAME" "$file_name"
    done
    true "${cyan}$BASH_SOURCE INFO: Imported temp_extra_packages .deb files. ${reset}"
-
-   ## Debugging.
-   #true "${cyan}$BASH_SOURCE INFO: Displaying sha512sum of $WHONIX_APT_REPOSITORY_FOLDER/pool/**... ${reset}"
-   #shopt -s globstar dotglob
-   ## "|| true", because "sha512sum" exits 1, because "sha512sum: [...]: Is a directory".
-   #sha512sum "$WHONIX_APT_REPOSITORY_FOLDER/pool/"** || true
-   #shopt -u globstar dotglob
-   #true "${cyan}$BASH_SOURCE INFO: Done, displayed sha512sums. ${reset}"
 
    true "${cyan}$BASH_SOURCE INFO: Done, created ${under}${WHONIX_BUILD_APT_CODENAME}${eunder} APT repository. ${reset}"
 }
@@ -456,7 +396,8 @@ create-debian-packages() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
    cleanup_old_packages
-   check_for_uncommited_changes
+   check_for_untagged_commits
+   check_for_uncommitted_changes
 
    true "${cyan}$BASH_SOURCE INFO: Going to update ${under}${WHONIX_BUILD_APT_CODENAME}${eunder} APT repository... ${reset}"
    sleep 3
@@ -486,6 +427,18 @@ parse_cmd() {
            --flavor)
                if [ "$2" = "whonix-custom-workstation" ]; then
                   WHONIX_BUILD_CUSTOM_WORKSTATION="1"
+               fi
+               shift 2
+               ;;
+           --allow-untagged)
+               if [ "$2" = "false" ]; then
+                  true "${cyan}INFO: Would stop if building form untagged commits.${reset}"
+               elif [ "$2" = "true" ]; then
+                  true "${cyan}INFO: Would build form untagged commits.${reset}"
+                  export whonix_build_ignore_untagged="true"
+               else
+                  echo "${red}${bold}ERROR: supported options for --allow-untagged are 'true' or 'false'.${reset}"
+                  exit 1
                fi
                shift 2
                ;;

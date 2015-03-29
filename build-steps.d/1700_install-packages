@@ -5,6 +5,7 @@
 ## See the file COPYING for copying conditions.
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE${1+"$@"}"
 
@@ -15,79 +16,72 @@ cd ..
 cd help-steps
 
 source pre
+source colors
 source variables
+
+root_check
 
 ## Debugging function.
 apt_get_parse_unmet_dependency() {
-   ## no error handler
-
-   true "INFO: Running \"dpkg -l | grep $pkg\"..."
-   dpkg -l | grep "$pkg"
-   apt-cache policy "$pkg"
+   local pkg_unmet
+   pkg_unmet="$1"
+   true "INFO: Running \"dpkg -l | grep $pkg_unmet\"..."
+   $CHROOT dpkg -l | grep "$pkg_unmet" || true
+   $CHROOT apt-cache policy "$pkg_unmet" || true
 
    local line
 
    ## Thanks to:
    ## http://blog.edwards-research.com/2010/01/quick-bash-trick-looping-through-output-lines/
 
-   OIFS="${IFS}"
-   NIFS=$'\n'
-
-   IFS="${NIFS}"
-
    set +x
 
    declare -A -g remember_pkg
 
-   for line in ${apt_get_output} ; do
-      IFS="${OIFS}"
+   while read -r -d $'\n' line; do
       local unmet_dependency=""
-      unmet_dependency="$(echo "${line}" | grep -o "Depends:.*" | awk '{print $2}')"
+      unmet_dependency="$(echo "$line" | grep -o "Depends:.*" | awk '{print $2}')" || true
       if [ "$unmet_dependency" = "" ]; then
          ## no match
-         IFS="${NIFS}"
          continue
       else
          ## match
          if [ "${remember_pkg[$unmet_dependency]}" = "true" ]; then
             continue
          fi
-         IFS="${OIFS}"
          echo "${bold}${cyan}INFO: Found unmet dependency: $unmet_dependency. \
 Will try to manually install it for debugging...${reset}"
          remember_pkg[$unmet_dependency]="true"
          set -x
          true "INFO: Running \"dpkg -l | grep $unmet_dependency\"..."
-         dpkg -l | grep "$unmet_dependency"
-         apt-cache policy "$unmet_dependency"
+         $CHROOT dpkg -l | grep "$unmet_dependency" || true
+         $CHROOT apt-cache policy "$unmet_dependency" || true
          pkg-install-maybe "$unmet_dependency" || true
          set +x
          echo "${bold}${cyan}INFO: Attempt to install unmet_dependency: $unmet_dependency done.${reset}"
-         IFS="${NIFS}"
          continue
       fi
-   done
+   done < <( echo "$apt_get_output" )
 
    set -x
-
-   IFS="${OIFS}"
 }
 
 pkg-install-maybe() {
    errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
 
-   pkg="$1"
+   local pkg_install
+   pkg_install="$1"
    local skip_package
-   for skip_package in $whonix_build_script_whonix_package; do
-      if [ "$skip_package" = "$pkg" ]; then
+   for skip_package in $whonix_build_script_skip_package_install; do
+      if [ "$skip_package" = "$pkg_install" ]; then
          unset skip_package
-         true "${bold}${cyan}INFO: Skipping $pkg, because whonix_build_script_whonix_package includes it.${reset}"
+         true "${bold}${cyan}INFO: Skipping $pkg_install, because whonix_build_script_skip_package_install includes it.${reset}"
          return 0
       fi
    done
    unset skip_package
 
-   true "${cyan}INFO: Installing $pkg, because whonix_build_script_whonix_package does not include it... \
+   true "${cyan}INFO: Installing $pkg_install, because whonix_build_script_skip_package_install does not include it... \
 This may take a while...${reset}"
 
    ## apt: no way to view dpkg commandline and still run dpkg
@@ -104,7 +98,7 @@ This may take a while...${reset}"
          --yes \
          --no-install-recommends \
          install \
-         "$pkg" \
+         "$pkg_install" \
          || { apt_get_exit_code="$?" ; true; };
 
    local apt_get_exit_code="0"
@@ -118,28 +112,21 @@ This may take a while...${reset}"
          --yes \
          --no-install-recommends \
          install \
-         "$pkg" \
+         "$pkg_install" \
          || { apt_get_exit_code="$?" ; true; };
 
    $CHROOT sync
    sync
 
    if [ "$apt_get_exit_code" = "0" ]; then
-      true "${cyan}INFO: Installed $pkg, no error detected.${reset}"
+      true "${cyan}INFO: Installed $pkg_install, no error detected.${reset}"
       return 0
    fi
 
-   if [ "$CI" = "true" ]; then
-      ## Debugging Travis CI.
-      true "${bold}${red}ERROR: Failed to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
-Continue anyway, because CI detected.${reset}"
-      return 0
-   fi
-
-   true "${bold}${red}ERROR: Failed to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
+   true "${bold}${red}ERROR: Failed to install $pkg_install. (apt_get_exit_code: $apt_get_exit_code) \
 Attempting to gather debug output to diagnose the problem...${reset}"
 
-   true "${bold}${cyan}INFO: Read output of apt-get trying to install $pkg into a \
+   true "${bold}${cyan}INFO: Read output of apt-get trying to install $pkg_install into a \
 variable for debugging. This may take a while...${reset}"
 
    local apt_get_exit_code="0"
@@ -155,7 +142,7 @@ variable for debugging. This may take a while...${reset}"
                   --yes \
                   --no-install-recommends \
                   install \
-                  "$pkg" \
+                  "$pkg_install" \
                   2>&1 \
          ) \
       " \
@@ -165,16 +152,25 @@ variable for debugging. This may take a while...${reset}"
    sync
 
    if [ "$apt_get_exit_code" = "0" ]; then
-      true "${bold}${red}ERROR: Second attempt installing $pkg did not fail?!?${reset}"
+      true "${bold}${red}ERROR: Second attempt installing $pkg_install did not fail?!?${reset}"
       error "See above!"
       return 0
    fi
 
-   true "${bold}${red}ERROR: As expected, failed again to install $pkg. (apt_get_exit_code: $apt_get_exit_code) \
+   true "${bold}${red}ERROR: As expected, failed again to install $pkg_install. (apt_get_exit_code: $apt_get_exit_code) \
 Trying to diagnose the problem using function apt_get_parse_unmet_dependency...${reset}"
 
-   apt_get_parse_unmet_dependency
+   apt_get_parse_unmet_dependency "$pkg_install"
+
    true "INFO: Tried to diagnose the problem using function apt_get_parse_unmet_dependency."
+
+   if [ "$CI" = "true" ]; then
+      ## Debugging Travis CI.
+      true "${bold}${red}ERROR: Failed to install $pkg_install. (apt_get_exit_code: $apt_get_exit_code) \
+Continue anyway, because CI detected.${reset}"
+      return 0
+   fi
+
    error "See above!"
    return 0
 }
@@ -182,8 +178,16 @@ Trying to diagnose the problem using function apt_get_parse_unmet_dependency...$
 backup-file-if-exists() {
    errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
 
+   if [ ! -d "$WHONIX_BINARY/system-files-backup" ]; then
+      sudo -E -u "$user_name" mkdir --parents "$WHONIX_BINARY/system-files-backup"
+   fi
+
+   local base_name
+   base_name="$(basename "$1")"
+
    if [ -f "$1" ]; then
-      cp --no-clobber --recursive --preserve "$1" "$1.backup"
+      cp --no-clobber --preserve "$1" "$1.backup"
+      sudo -E -u "$user_name" cp --no-clobber --preserve "$1" "$WHONIX_BINARY/system-files-backup/$base_name"
    else
       true "INFO: file $1 does not exist, skipping backup, ok."
    fi
@@ -192,12 +196,6 @@ backup-file-if-exists() {
 
 install-packages() {
    errorhandlersetup "errorhandlerunchrootunpreventunmount" ERR INT TERM
-
-   if [ "$WHONIX_BUILD_USE_AUTO_LOCAL_SIGNING_KEY" = "1" ]; then
-      if [ ! -f "$WHONIX_LOCAL_SIGNING_KEY_FOLDER/done" ]; then
-         error "${red}${bold}$BASH_SOURCE ERROR: $WHONIX_LOCAL_SIGNING_KEY_FOLDER/done does not exist. Most likely build-steps.d/1200_create-debian-packages has not been run yet.${reset}"
-      fi
-   fi
 
    sync
 
@@ -239,13 +237,14 @@ install-packages() {
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
    ## Debugging.
-   $CHROOT ls -la /etc/apt/trusted.gpg.d
-   $CHROOT apt-key finger
-
    $CHROOT ls -la /mnt/initialdeb/dists/local/ || true
    $CHROOT ls -la /mnt/initialdeb/dists/local/main/binary-i386/ || true
-   ## Reading apt repository containing snapshot.debian.org and repository containing Whonix's packages.
-   $CHROOT apt-get $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_unattended_opts --fix-missing update
+
+   ## XXX
+   ## Make the wrapper available.
+   cp "$apt_get_update_wrapper_source_path_full" "$CHROOT_FOLDER/$apt_get_update_wrapper_bin_path_full"
+
+   $CHROOT $apt_get_update_wrapper_bin_path_full $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_get_gpgv_opts $apt_unattended_opts update
 
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/unchroot-raw"
 
@@ -256,12 +255,16 @@ install-packages() {
    export WHONIX_CHROOT_MOUNT_RESOLV_CONF="0"
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
+   if [ "$CI" = "true" ]; then
+      $CHROOT apt-get purge resolvconf
+   fi
+
    if [ "$WHONIX_BUILD_GATEWAY" = "1" ]; then
       pkg-install-maybe whonix-gateway-packages-dependencies-pre
    elif [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
       pkg-install-maybe whonix-workstation-packages-dependencies-pre
    else
-      bug "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
+      error "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
    fi
 
    unset WHONIX_CHROOT_MOUNT_RESOLV_CONF
@@ -272,13 +275,8 @@ install-packages() {
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/create-local-temp-apt-repo"
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/chroot-raw"
 
-   $CHROOT ls -la /mnt/initialdeb/dists/local/ || true
-   $CHROOT ls -la /mnt/initialdeb/dists/local/main/binary-i386/ || true
    ## Reading apt repository containing snapshot.debian.org and repository containing Whonix's packages.
-   $CHROOT apt-get $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_unattended_opts --fix-missing update
-
-   ## Debugging.
-   #$CHROOT apt-cache policy || true
+   $CHROOT $apt_get_update_wrapper_bin_path_full $apt_sourcelist_empty $apt_sourceparts $apt_timeout_opts $apt_verify_opts $apt_get_gpgv_opts $apt_unattended_opts update
 
    if [ "$CI" = "true" ]; then
       ## Debugging Travis CI.
@@ -312,7 +310,7 @@ install-packages() {
    ## Lets upgrade from the frozen snapshot debian-security repository (if
    ## anything). For whatever that's worth. (We're not using Debian's current
    ## repositories anyway, but can't hurt. More useful for custom builders who
-   ## prefer to build from Debians's current repository.)
+   ## prefer to build from Debian's current repository.)
    if [ "$CI" = "true" ]; then
       true "INFO $BASH_SOURCE: skipping dist-upgrade, because CI detected."
       true "INFO $BASH_SOURCE: (Would try to upgrade from Ubuntu precise to saucy, which failed at time of writing.)"
@@ -337,14 +335,14 @@ install-packages() {
    $CHROOT apt-cache policy zenity || true
    $CHROOT apt-cache policy debsums || true
 
-   if [ "$whonix_build_script_whonix_package" = "" ]; then
-      true "${bold}${cyan}INFO $BASH_SOURCE: Variable whonix_build_script_whonix_package is empty. \
+   if [ "$whonix_build_script_skip_package_install" = "" ]; then
+      true "${bold}${cyan}INFO $BASH_SOURCE: Variable whonix_build_script_skip_package_install is empty. \
 No packages will be excluded from installation. This information is relevant for builders using custom configurations, \
 skipping packages such as Terminal-Only.${reset}"
    else
       true "${bold}${cyan}INFO $BASH_SOURCE: List of packages to be excluded from installation. This information is relevant for \
-builders using custom configurations, skipping packages such as Terminal-Only. whonix_build_script_whonix_package: \
-$whonix_build_script_whonix_package${reset}"
+builders using custom configurations, skipping packages such as Terminal-Only. whonix_build_script_skip_package_install: \
+$whonix_build_script_skip_package_install${reset}"
    fi
 
    pkg-install-maybe anon-shared-build-apt-sources-tpo
@@ -383,6 +381,28 @@ $whonix_build_script_whonix_package${reset}"
       pkg-install-maybe anon-shared-build-fix-grub
    fi
 
+   if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
+      true "${cyan}INFO: ANON_BUILD_INSTALL_TO_ROOT is set to 1, skipping installation of weak recommended guest additions packages, ok.${reset}"
+   else
+      ## Weak recommended packages. No other package depends on it. Can be
+      ## easily uninstalled. For better usability.
+      if [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
+         ## virtualbox-guest-dkms is required VirtualBox guest addtions module
+         ## building. Need to manually install it, because we are
+         ## using --no-install-recommends and because neither
+         ## virtualbox-guest-x11 nor virtualbox-guest-utils depends on it.
+         pkg-install-maybe virtualbox-guest-dkms
+         pkg-install-maybe virtualbox-guest-x11
+      else
+         true "${cyan}INFO: skipping installation of weak recommended guest additions package virtualbox-guest-x11, because not using --target virtualbox, ok.${reset}"
+      fi
+      if [ "$WHONIX_BUILD_QCOW2" = "true" ]; then
+         pkg-install-maybe spice-vdagent
+      else
+         true "${cyan}INFO: skipping installation of weak recommended guest additions package spice-vdagent, because not using --target qcow2, ok.${reset}"
+      fi
+   fi
+
    pkg-install-maybe anon-shared-build-log-build-version
    pkg-install-maybe anon-shared-build-remember-sources
    pkg-install-maybe anon-shared-build-ban-nonfree
@@ -416,7 +436,7 @@ $whonix_build_script_whonix_package${reset}"
       pkg-install-maybe whonix-workstation-packages-recommended
       pkg-install-maybe whonix-workstation
    else
-      bug "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
+      error "${red}${bold}ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!${reset}"
    fi
 
    "$WHONIX_SOURCE_HELP_STEPS_FOLDER/remove-local-temp-apt-repo"
@@ -426,7 +446,7 @@ $whonix_build_script_whonix_package${reset}"
    #$CHROOT apt-get --no-download --list-cleanup update
 
    ## Implemented in help-steps/pre.
-   apt_cache_disable
+   aptcachedisable
 
    $CHROOT sync
    sync
@@ -445,7 +465,7 @@ elif [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
 elif [ "$WHONIX_BUILD_CUSTOM_WORKSTATION" = "1" ]; then
    true "${cyan}INFO: Skipping installing packages for $VMNAME.${reset}"
 else
-   bug "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
+   error "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
 fi
 benchmarktimeend ## sets benchmark_took_time (implemented in help-steps/pre)
 true "${bold}${under}INFO: End of: $BASH_SOURCE ${1+"$@"} | $whonix_build_error_counter error(s) detected. (benchmark: $benchmark_took_time)${reset}"

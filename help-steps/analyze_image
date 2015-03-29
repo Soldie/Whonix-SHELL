@@ -11,6 +11,7 @@
 MINUS_X_SET="$?"
 
 set -x
+set -e
 
 true "INFO: Currently running script: $BASH_SOURCE ${1+"$@"}"
 
@@ -26,7 +27,10 @@ export VMNAME="internalrun"
 
 cd help-steps
 source pre
+source colors
 source variables
+
+root_check
 
 script_help() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
@@ -265,8 +269,6 @@ unmount_image() {
 }
 
 preparation() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$minimal_report" = "true" ]; then
       true "${cyan}INFO: Only creating minimal report file because minimal_report is true.${reset}"
       rm --force "$report_file"
@@ -418,8 +420,6 @@ preparation() {
 }
 
 parse_topcomment() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$topcomment" = "" ]; then
       topcomment="No topcomment."
    fi
@@ -430,8 +430,6 @@ $topcomment
 }
 
 extract_ova() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ova" = "0" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because no ova chosen. ${reset}"
       return 0
@@ -458,8 +456,6 @@ extract_ova() {
 }
 
 convert_vmdk_to_vdi() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$vmdk" = "0" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because no vmdk chosen. ${reset}"
       return 0
@@ -498,8 +494,6 @@ convert_vmdk_to_vdi() {
 }
 
 convert_x_to_raw() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because ANON_BUILD_INSTALL_TO_ROOT is 1. ${reset}"
       return 0
@@ -537,8 +531,6 @@ convert_x_to_raw() {
 }
 
 mount_image() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       mount_raw_exit_code="0"
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because ANON_BUILD_INSTALL_TO_ROOT is 1. ${reset}"
@@ -575,8 +567,6 @@ mount_image() {
 }
 
 parse_file_system() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because ANON_BUILD_INSTALL_TO_ROOT is 1. ${reset}"
       return 0
@@ -599,8 +589,6 @@ parse_file_system() {
 }
 
 parse_mbr() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because ANON_BUILD_INSTALL_TO_ROOT is 1. ${reset}"
       return 0
@@ -630,8 +618,6 @@ parse_mbr() {
 }
 
 parse_vbr() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$ANON_BUILD_INSTALL_TO_ROOT" = "1" ]; then
       true "${bold}${cyan}INFO: Skipping $FUNCNAME, because ANON_BUILD_INSTALL_TO_ROOT is 1. ${reset}"
       return 0
@@ -654,15 +640,11 @@ parse_vbr() {
 }
 
 cp_to_user() {
-   trap "error_handler" ERR INT TERM
-
    cp "$1" "$2"
    chown --recursive "$user_name:$user_name" "$2"
 }
 
 parse_special_files() {
-   trap "error_handler" ERR INT TERM
-
    true "${bold}${cyan}INFO: Parsing special files... ${reset}"
 
    ###########################
@@ -805,8 +787,6 @@ parse_special_files() {
 }
 
 parse_initrd() {
-   trap "error_handler" ERR INT TERM
-
    true "${bold}${cyan}INFO: Parsing initrd... ${reset}"
 
    ## {{{ /boot/*
@@ -850,8 +830,6 @@ parse_initrd() {
 }
 
 parse_folder() {
-   trap "error_handler" ERR INT TERM
-
    local i
    i="0"
 
@@ -1190,14 +1168,10 @@ $temp12 $Type_in_hex\
 }
 
 parse_file_list_file() {
-   trap "error_handler" ERR INT TERM
-
    sha512sum "$file_list_file" >> "$report_file"
 }
 
 parse_endcomment() {
-   trap "error_handler" ERR INT TERM
-
    if [ "$endcomment" = "" ]; then
       endcomment="INFO: No endcomment. | $whonix_build_error_counter error(s) detected."
    fi
@@ -1210,112 +1184,117 @@ $endcomment"
 }
 
 end() {
-   trap "error_handler" ERR INT TERM
-
    true "${bold}${cyan}INFO: End. | $whonix_build_error_counter error(s) detected. ${reset}"
 }
 
-parse_cmd ${1+"$@"}
-preparation
-parse_topcomment
+main_function() {
+   parse_cmd ${1+"$@"}
 
-extract_ova
-convert_vmdk_to_vdi
-convert_x_to_raw
+   trap "error_handler" ERR INT TERM
 
-parse_file_system
-parse_vbr
-parse_mbr
+   preparation
+   parse_topcomment
 
-## sets: mount_raw_exit_code
-mount_image
+   extract_ova
+   convert_vmdk_to_vdi
+   convert_x_to_raw
 
-if [ "$mount_raw_exit_code" = "0" ]; then
-   parse_special_files
-   parse_initrd
-fi
+   parse_file_system
+   parse_vbr
+   parse_mbr
 
-## skip, because we expect these files to be non-deterministic.
-## Manual analysis required.
-skip="1"
-folder="$manual_analysis_folder"
-parse_folder
-skip="0"
+   ## sets: mount_raw_exit_code
+   mount_image
 
-if [ "$mount_raw_exit_code" = "0" ]; then
-   ## skip, because we expect the image to be non-deterministic.
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      parse_special_files
+      parse_initrd
+   fi
+
+   ## skip, because we expect these files to be non-deterministic.
+   ## Manual analysis required.
    skip="1"
-fi
-folder="$extracted_ova_folder"
-parse_folder
-skip="0"
-
-if [ "$mount_raw_exit_code" = "0" ]; then
-   ## skip, because we expect the image to be non-deterministic.
-   skip="1"
-fi
-folder="$vdi_folder"
-parse_folder
-skip="0"
-
-if [ "$mount_raw_exit_code" = "0" ]; then
-   ## skip, because we expect the image to be non-deterministic.
-   skip="1"
-fi
-folder="$qcow_folder"
-parse_folder
-skip="0"
-
-if [ "$mount_raw_exit_code" = "0" ]; then
-   ## skip, because we expect the image to be non-deterministic.
-   skip="1"
-fi
-folder="$qcow2_folder"
-parse_folder
-skip="0"
-
-if [ "$mount_raw_exit_code" = "0" ]; then
-   ## skip, because we expect the image to be non-deterministic.
-   skip="1"
-fi
-folder="$raw_folder"
-parse_folder
-skip="0"
-
-skip="0"
-folder="$auto_hash_folder"
-parse_folder
-skip="0"
-
-skip="0"
-folder="$debug_folder"
-parse_folder
-skip="0"
-
-skip="0"
-folder="$initrd_folder"
-parse_folder
-skip="0"
-
-skip="0"
-folder="$extracted_initrd_folder"
-parse_folder
-skip="0"
-
-if [ "$mount_raw_exit_code" = "0" ]; then
-   disable_xtrace="1"
-   skip="0"
-   folder="$mount_folder"
+   folder="$manual_analysis_folder"
    parse_folder
    skip="0"
-   disable_xtrace="0"
-fi
 
-if [ "$mount_raw_exit_code" = "0" ]; then
-   unmount_image
-fi
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      ## skip, because we expect the image to be non-deterministic.
+      skip="1"
+   fi
+   folder="$extracted_ova_folder"
+   parse_folder
+   skip="0"
 
-parse_file_list_file
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      ## skip, because we expect the image to be non-deterministic.
+      skip="1"
+   fi
+   folder="$vdi_folder"
+   parse_folder
+   skip="0"
 
-parse_endcomment
-end
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      ## skip, because we expect the image to be non-deterministic.
+      skip="1"
+   fi
+   folder="$qcow_folder"
+   parse_folder
+   skip="0"
+
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      ## skip, because we expect the image to be non-deterministic.
+      skip="1"
+   fi
+   folder="$qcow2_folder"
+   parse_folder
+   skip="0"
+
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      ## skip, because we expect the image to be non-deterministic.
+      skip="1"
+   fi
+   folder="$raw_folder"
+   parse_folder
+   skip="0"
+
+   skip="0"
+   folder="$auto_hash_folder"
+   parse_folder
+   skip="0"
+
+   skip="0"
+   folder="$debug_folder"
+   parse_folder
+   skip="0"
+
+   skip="0"
+   folder="$initrd_folder"
+   parse_folder
+   skip="0"
+
+   skip="0"
+   folder="$extracted_initrd_folder"
+   parse_folder
+   skip="0"
+
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      disable_xtrace="1"
+      skip="0"
+      folder="$mount_folder"
+      parse_folder
+      skip="0"
+      disable_xtrace="0"
+   fi
+
+   if [ "$mount_raw_exit_code" = "0" ]; then
+      unmount_image
+   fi
+
+   parse_file_list_file
+
+   parse_endcomment
+   end
+}
+
+main_function ${1+"$@"}
