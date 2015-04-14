@@ -403,6 +403,14 @@ $whonix_build_script_skip_package_install${reset}"
       fi
    fi
 
+   if [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
+      ## Make sure 'anon-ws-disable-stacked-tor' gets installed before
+      ## 'anon-shared-packages-dependencies', which depends on 'sdwdate' which
+      ## depends on 'tor', so 'tor' does not needlessly installed on the
+      ## workstation.
+      pkg-install-maybe anon-ws-disable-stacked-tor
+   fi
+
    pkg-install-maybe anon-shared-build-log-build-version
    pkg-install-maybe anon-shared-build-remember-sources
    pkg-install-maybe anon-shared-build-ban-nonfree
