@@ -97,9 +97,6 @@ general_setup() {
    ## http://www.braingia.org/webnotes/2011/06/22/disable-time-sync-with-virtualbox/
    sudo -u "$user_name" VBoxManage setextradata "$VMNAME" "VBoxInternal/Devices/VMMDev/0/Config/GetHostTimeDisabled" "1"
 
-   ## Disable clipboard sharing. Only matters if guest additions are installed which is recommended against. Just in case.
-   sudo -u "$user_name" VBoxManage modifyvm "$VMNAME" --clipboard disabled
-
    ## Disable Drag'n'Drop support. Only matters if guest additions are installed which is recommended against. Just in case.
    ## TODO: Get ride of || true.
    ## || true to make this work on Debian Wheezy. We do not yet have the requirement to build on Debian Jessi.
@@ -108,11 +105,17 @@ general_setup() {
    sudo -u "$user_name" VBoxManage modifyvm "$VMNAME" --draganddrop disabled || true
    true "INFO: If it failed, it was expected. See Whonix source code."
 
+   ## Disable clipboard sharing. Only matters if guest additions are installed which is recommended against. Just in case.
+   sudo -u "$user_name" VBoxManage modifyvm "$VMNAME" --clipboard disabled
+
    sync
 }
 
 whonix-gateway_specific() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
+
+   ## Allow clipboard copying from the host to guest to ease entering bridges.
+   sudo -u "$user_name" VBoxManage modifyvm "$VMNAME" --clipboard hosttoguest
 
    ## Attach the HDD.
    sudo -u "$user_name" VBoxManage storageattach "$VMNAME" --storagectl "$VMNAME-sas" --type hdd --port 0 --medium "$HOMEVAR/VirtualBox VMs/$VMNAME/$VMNAME.vdi"
@@ -182,6 +185,8 @@ whonix-workstation_specific() {
 whonix-custom-workstation_specific() {
    errorhandlersetup "errorhandlergeneral" ERR INT TERM
 
+   whonix-workstation_specific
+
    VBoxManage setextradata "$VMNAME" "GUI/FirstRun" "yes"
 
    sync
@@ -197,7 +202,6 @@ if [ "$WHONIX_BUILD_VIRTUALBOX" = "true" ]; then
    elif [ "$WHONIX_BUILD_WORKSTATION" = "1" ]; then
       whonix-workstation_specific
    elif [ "$WHONIX_BUILD_CUSTOM_WORKSTATION" = "1" ]; then
-      whonix-workstation_specific
       whonix-custom-workstation_specific
    else
       error "ERROR: Neither WHONIX_BUILD_GATEWAY nor WHONIX_BUILD_WORKSTATION is set to 1. Please report this bug!"
